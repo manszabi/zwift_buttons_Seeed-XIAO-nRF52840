@@ -143,8 +143,7 @@ void loop() {
   }
 
   watchDOG.update();
-
-  delay(10);
+  
 }
 
 uint8_t checkForSoftDevice() {
