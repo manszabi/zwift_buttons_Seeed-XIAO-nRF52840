@@ -26,6 +26,8 @@ const long interval = 1000;
 unsigned long currentMillis;
 int nezet = 0;
 bool enableChangeView = false;
+bool enableVolumeUpDown = false;
+bool enablePowerup = false;
 
 OneButton button1(BUTTON_PIN[1], true);
 OneButton button2(BUTTON_PIN[2], true);
@@ -143,7 +145,8 @@ void loop() {
   }
 
   watchDOG.update();
-  
+
+  delay(10);
 }
 
 uint8_t checkForSoftDevice() {
@@ -248,12 +251,6 @@ void longPressStart1() {
 void longPress1() {
   Serial.println("Button 1 longPress...");
   fct_WatchdogReset();
-  if (hasKeyPressed) {
-    blehid.keyRelease();
-  }
-  if (hasCosumerKeyPressed) {
-    blehid.consumerKeyRelease();
-  }
 }
 
 void longPressStop1() {
@@ -270,8 +267,13 @@ void longPressStop1() {
 void click2() {
   Serial.println("Button 2 click.");
   fct_WatchdogReset();
-  if (!hasCosumerKeyPressed && !hasKeyPressed) {
+  if (!hasCosumerKeyPressed && !hasKeyPressed && !enablePowerup) {
     uint8_t keycodes[6] = { HID_KEY_ENTER, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
+    blehid.keyboardReport(0, keycodes);
+    hasKeyPressed = true;
+    delay(35);
+  } else if (!hasCosumerKeyPressed && !hasKeyPressed && enablePowerup){
+    uint8_t keycodes[6] = { HID_KEY_SPACE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
     blehid.keyboardReport(0, keycodes);
     hasKeyPressed = true;
     delay(35);
@@ -295,12 +297,6 @@ void longPressStart2() {
 void longPress2() {
   Serial.println("Button 2 longPress...");
   fct_WatchdogReset();
-  if (hasKeyPressed) {
-    blehid.keyRelease();
-  }
-  if (hasCosumerKeyPressed) {
-    blehid.consumerKeyRelease();
-  }
 }
 
 void longPressStop2() {
@@ -346,12 +342,6 @@ void longPressStart3() {
 void longPress3() {
   Serial.println("Button 3 longPress...");
   fct_WatchdogReset();
-  if (hasKeyPressed) {
-    blehid.keyRelease();
-  }
-  if (hasCosumerKeyPressed) {
-    blehid.consumerKeyRelease();
-  }
 }
 
 void longPressStop3() {
@@ -384,6 +374,8 @@ void doubleclick4() {
     blehid.keyboardReport(0, keycodes);
     hasKeyPressed = true;
     enableChangeView = !enableChangeView;
+    enableVolumeUpDown = !enableVolumeUpDown;
+    enablePowerup = !enablePowerup;
     delay(35);
   }
 }
@@ -391,7 +383,7 @@ void doubleclick4() {
 void longPressStart4() {
   Serial.println("Button 4 longPress start");
   fct_WatchdogReset();
-  if (!hasCosumerKeyPressed && !hasKeyPressed) {
+  if (!hasCosumerKeyPressed && !hasKeyPressed && !enableVolumeUpDown) {
     blehid.consumerKeyPress(0, HID_USAGE_CONSUMER_VOLUME_DECREMENT);  //zwiftben nem fordul azonnal vissza
     hasCosumerKeyPressed = true;
     delay(35);
@@ -401,17 +393,24 @@ void longPressStart4() {
 void longPress4() {
   Serial.println("Button 4 longPress...");
   fct_WatchdogReset();
-  if (!hasCosumerKeyPressed && !hasKeyPressed) {
+  if (!hasCosumerKeyPressed && !hasKeyPressed && enableVolumeUpDown) {
+    blehid.consumerKeyPress(0, HID_USAGE_CONSUMER_VOLUME_DECREMENT);
+    hasCosumerKeyPressed = false;
+  } else if (!hasCosumerKeyPressed && !hasKeyPressed && !enableVolumeUpDown) {
     uint8_t keycodes[6] = { HID_KEY_ARROW_DOWN, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
     blehid.keyboardReport(0, keycodes);
-    delay(35);
+    hasKeyPressed = false;
   }
+  delay(35);
 }
 
 void longPressStop4() {
   Serial.println("Button 4 longPress stop");
   fct_WatchdogReset();
   hasKeyPressed = true;
+  if (enableVolumeUpDown == 1) {
+    hasCosumerKeyPressed = true;
+  }
 }
 
 void click5() {
@@ -459,7 +458,7 @@ void click5() {
         keycodeView[0] = HID_KEY_1;
         keycodeView[1] = HID_KEY_PAGE_UP;
       }
-      
+
       blehid.keyboardReport(0, keycodeView);
       hasKeyPressed = true;
       delay(35);
@@ -485,7 +484,7 @@ void doubleclick5() {
 void longPressStart5() {
   Serial.println("Button 5 longPress start");
   fct_WatchdogReset();
-  if (!hasCosumerKeyPressed && !hasKeyPressed) {
+  if (!hasCosumerKeyPressed && !hasKeyPressed && !enableVolumeUpDown) {
     blehid.consumerKeyPress(0, HID_USAGE_CONSUMER_VOLUME_INCREMENT);  //zwiftben nem fordul azonnal vissza
     hasCosumerKeyPressed = true;
     delay(35);
@@ -495,11 +494,10 @@ void longPressStart5() {
 void longPress5() {
   Serial.println("Button 5 longPress...");
   fct_WatchdogReset();
-  if (hasKeyPressed) {
-    blehid.keyRelease();
-  }
-  if (hasCosumerKeyPressed) {
-    blehid.consumerKeyRelease();
+  if (!hasCosumerKeyPressed && !hasKeyPressed && enableVolumeUpDown) {
+    blehid.consumerKeyPress(0, HID_USAGE_CONSUMER_VOLUME_INCREMENT);
+    hasCosumerKeyPressed = false;
+    delay(35);
   }
 }
 
@@ -511,5 +509,8 @@ void longPressStop5() {
     blehid.keyboardReport(0, keycodes);
     hasKeyPressed = true;
     delay(35);
+  }
+  if (enableVolumeUpDown == 1) {
+    hasCosumerKeyPressed = true;
   }
 }
