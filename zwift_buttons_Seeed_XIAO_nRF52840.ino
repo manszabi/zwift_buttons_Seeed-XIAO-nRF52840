@@ -7,6 +7,18 @@
 #include <OneButton.h>
 #include <bluefruit.h>
 #include <TickTwo.h>
+#include <Adafruit_LittleFS.h>
+#include <InternalFileSystem.h>
+
+using namespace Adafruit_LittleFS_Namespace;
+
+#define FILENAME "/jelenlegiuzemmod.txt"
+#define CONTENTNormal "normalUzemmod"
+#define CONTENTVerseny "versenyEdzesUzemmod"
+#define CONTENTMedia "mediaVezerloUzemmod"
+
+
+Adafruit_LittleFS_Namespace::File file(InternalFS);
 
 void fct_Watchdog();
 
@@ -26,6 +38,7 @@ const long interval = 1000;
 unsigned long currentMillis;
 int nezet = 0;
 bool duringLongpress = false;
+String taroltUzemmod;
 
 OneButton button1(BUTTON_PIN[1], true);
 OneButton button2(BUTTON_PIN[2], true);
@@ -60,8 +73,47 @@ void QSPIF_sleep(void) {
 
 void setup() {
   Serial.begin(115200);
-  while ( !Serial ) delay(10);
+  
+  delay(500);
+
   Serial.println("Reboot.");
+
+  InternalFS.begin();
+
+  file.open(FILENAME, FILE_O_READ);
+
+  // file existed
+  if (file) {
+    Serial.println(FILENAME " file exists");
+
+    uint32_t readlen;
+    char buffer[64] = { 0 };
+    readlen = file.read(buffer, sizeof(buffer));
+
+    buffer[readlen] = 0;
+    Serial.println(buffer);
+    taroltUzemmod = buffer;
+    file.close();
+  } else {
+    Serial.print("Open " FILENAME " file to write ... ");
+    if (file.open(FILENAME, FILE_O_WRITE)) {
+      Serial.println("OK");
+      file.write(CONTENTNormal, strlen(CONTENTNormal));
+      file.close();
+    } else {
+      Serial.println("Failed!");
+    }
+  }
+
+  if (taroltUzemmod == "normaluzemmod") {
+    jelenlegiUzemmod = normalUzemmod;
+  } else if (taroltUzemmod == "versenyEdzesUzemmod") {
+    jelenlegiUzemmod = versenyEdzesUzemmod;
+  } else if (taroltUzemmod == "mediaVezerloUzemmod") {
+    jelenlegiUzemmod = mediaVezerloUzemmod;
+  }
+
+  Serial.println("Done");
 
   watchDOG.start();
   for (int i = 0; i < numOfLeds; i++) {  //ledek
@@ -125,10 +177,25 @@ void setup() {
 
 void loop() {
 
-  uzemmod elozoUzemmod = jelenlegiUzemmod;
-
   digitalWrite(pin_charging_current, LOW);
   //toltes alacsony árammal
+
+  uzemmod elozoUzemmod = jelenlegiUzemmod;
+
+  for (int i = 0; i < numOfLeds; i++) {
+    digitalWrite(ledPin[i], HIGH);
+  }
+  switch (jelenlegiUzemmod) {
+    case normalUzemmod:
+      digitalWrite(ledPin[0], LOW);
+      break;
+    case versenyEdzesUzemmod:
+      digitalWrite(ledPin[1], LOW);
+      break;
+    case mediaVezerloUzemmod:
+      digitalWrite(ledPin[2], LOW);
+      break;  
+  }
 
   if (Bluefruit.connected()) {
 
@@ -151,30 +218,42 @@ void loop() {
         hasCosumerKeyPressed = false;
       }
     }
+  }
 
-    if (elozoUzemmod != jelenlegiUzemmod) {
-      Serial.println("A jelenlegiUzemmod változó értéke megváltozott.");
-    } else {
-      Serial.println("A jelenlegiUzemmod változó értéke nem változott.");
-    }
+  if (elozoUzemmod != jelenlegiUzemmod) {
+    Serial.println("A jelenlegiUzemmod változó értéke megváltozott.");
+    Serial.print("Open " FILENAME " file to write ... ");
+    InternalFS.remove(FILENAME);
 
-    for (int i = 0; i < numOfLeds; i++) {
-      digitalWrite(ledPin[i], HIGH);
-    }
-    switch (jelenlegiUzemmod) {
-      case normalUzemmod:
-        digitalWrite(ledPin[0], LOW);
-        break;
-      case versenyEdzesUzemmod:
-        digitalWrite(ledPin[1], LOW);
-        break;
-      case mediaVezerloUzemmod:
-        digitalWrite(ledPin[2], LOW);
-        break;
+    if (jelenlegiUzemmod == normalUzemmod) {
+      if (file.open(FILENAME, FILE_O_WRITE)) {
+        Serial.println("OK");
+        file.write(CONTENTNormal, strlen(CONTENTNormal));
+        file.close();
+      } else {
+        Serial.println("Failed!");
+      }
+    } else if (jelenlegiUzemmod == versenyEdzesUzemmod) {
+      if (file.open(FILENAME, FILE_O_WRITE)) {
+        Serial.println("OK");
+        file.write(CONTENTVerseny, strlen(CONTENTVerseny));
+        file.close();
+      } else {
+        Serial.println("Failed!");
+      }
+    } else if (jelenlegiUzemmod == mediaVezerloUzemmod) {
+      if (file.open(FILENAME, FILE_O_WRITE)) {
+        Serial.println("OK");
+        file.write(CONTENTMedia, strlen(CONTENTMedia));
+        file.close();
+      } else {
+        Serial.println("Failed!");
+      }
     }
   }
 
   watchDOG.update();
+  delay(20);
 }
 
 
