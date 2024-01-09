@@ -36,6 +36,7 @@ bool hasCosumerKeyPressed = false;
 unsigned long previousMillis = 0;
 const long interval = 1000;
 unsigned long currentMillis;
+int offDelay = 900; //sleep delay
 int nezet = 0;
 bool duringLongpress = false;
 String taroltUzemmod;
@@ -73,7 +74,7 @@ void QSPIF_sleep(void) {
 
 void setup() {
   Serial.begin(115200);
-  
+
   delay(500);
 
   Serial.println("Reboot.");
@@ -107,7 +108,7 @@ void setup() {
 
   if (taroltUzemmod == "normaluzemmod") {
     jelenlegiUzemmod = normalUzemmod;
-  } else if (taroltUzemmod == "versenyEdzesUzemmod") {
+  } else if (taroltUzemmod == "versengyEdzesUzemmod") {
     jelenlegiUzemmod = versenyEdzesUzemmod;
   } else if (taroltUzemmod == "mediaVezerloUzemmod") {
     jelenlegiUzemmod = mediaVezerloUzemmod;
@@ -231,7 +232,7 @@ void loop() {
         file.write(CONTENTNormal, strlen(CONTENTNormal));
         file.close();
       } else {
-        Serial.println("Failed!");
+        Serial.println("Failed! CONTENTNormal");
       }
     } else if (jelenlegiUzemmod == versenyEdzesUzemmod) {
       if (file.open(FILENAME, FILE_O_WRITE)) {
@@ -239,7 +240,7 @@ void loop() {
         file.write(CONTENTVerseny, strlen(CONTENTVerseny));
         file.close();
       } else {
-        Serial.println("Failed!");
+        Serial.println("Failed! CONTENTVerseny");
       }
     } else if (jelenlegiUzemmod == mediaVezerloUzemmod) {
       if (file.open(FILENAME, FILE_O_WRITE)) {
@@ -247,7 +248,7 @@ void loop() {
         file.write(CONTENTMedia, strlen(CONTENTMedia));
         file.close();
       } else {
-        Serial.println("Failed!");
+        Serial.println("Failed! CONTENTMedia");
       }
     }
   }
@@ -277,6 +278,7 @@ void ble_sleep(void) {
 }
 
 void fct_powerdown() {
+  InternalFS.end();
   for (int i = 0; i < numOfLeds; i++) {
     digitalWrite(ledPin[i], HIGH);
   }
@@ -294,7 +296,7 @@ void fct_powerdown() {
 
 void fct_Watchdog() {
   watchdogCounter++;
-  if (watchdogCounter == 1800) {
+  if (watchdogCounter == offDelay) {
     fct_powerdown();
   }
 }
@@ -544,7 +546,7 @@ void longPressStart2() {
     case mediaVezerloUzemmod:
       {
         if (!hasCosumerKeyPressed && !hasKeyPressed) {
-          uint8_t keycodes[6] = { HID_KEY_ALT_LEFT, HID_KEY_ENTER, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
+          uint8_t keycodes[6] = { HID_KEY_ALT_LEFT, HID_KEY_TAB, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = true;
           delay(25);
