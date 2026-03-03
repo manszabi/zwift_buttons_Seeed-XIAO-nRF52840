@@ -24,7 +24,6 @@ void fct_Watchdog();
 
 BLEDis bledis;
 BLEHidAdafruit blehid;
-bool BTConnected = false;
 
 const int ledPin[] = { 11, 12, 13 };  //red, blue, green
 const int pin_charging_current = 22;  //mekkora árammal töltsön
@@ -32,10 +31,9 @@ const int numOfLeds = sizeof(ledPin) / sizeof(ledPin[0]);
 const int BUTTON_PIN[5] = { 0, 1, 2, 3, 4 };  // A gombokhoz csatlakoztatott tüskék
 const int numOfButtons = sizeof(BUTTON_PIN) / sizeof(BUTTON_PIN[0]);
 bool hasKeyPressed = false;
-bool hasCosumerKeyPressed = false;
+bool hasConsumerKeyPressed = false;
 unsigned long previousMillis = 0;
 const long interval = 1000;
-unsigned long currentMillis;
 int offDelay = 900; //sleep delay
 int nezet = 0;
 bool duringLongpress = false;
@@ -51,7 +49,7 @@ OneButton button5(BUTTON_PIN[0], true);
 
 TickTwo watchDOG(fct_Watchdog, 1000, 0, MILLIS);
 
-#define watchdogMinCounter 0  // 10minuten
+#define watchdogMinCounter 0  // reset value for watchdog counter
 static uint32_t watchdogCounter = watchdogMinCounter;
 
 Adafruit_FlashTransport_QSPI flashTransport;
@@ -63,7 +61,6 @@ enum uzemmod {
 };
 
 uzemmod jelenlegiUzemmod = normalUzemmod;
-uzemmod elozoUzemmod = jelenlegiUzemmod;
 
 
 void QSPIF_sleep(void) {
@@ -89,7 +86,7 @@ void setup() {
 
     uint32_t readlen;
     char buffer[64] = { 0 };
-    readlen = file.read(buffer, sizeof(buffer));
+    readlen = file.read(buffer, sizeof(buffer) - 1);
 
     buffer[readlen] = 0;
     Serial.println(buffer);
@@ -106,11 +103,11 @@ void setup() {
     }
   }
 
-  if (taroltUzemmod == "normaluzemmod") {
+  if (taroltUzemmod == CONTENTNormal) {
     jelenlegiUzemmod = normalUzemmod;
-  } else if (taroltUzemmod == "versengyEdzesUzemmod") {
+  } else if (taroltUzemmod == CONTENTVerseny) {
     jelenlegiUzemmod = versenyEdzesUzemmod;
-  } else if (taroltUzemmod == "mediaVezerloUzemmod") {
+  } else if (taroltUzemmod == CONTENTMedia) {
     jelenlegiUzemmod = mediaVezerloUzemmod;
   }
 
@@ -195,18 +192,20 @@ void loop() {
       break;
     case mediaVezerloUzemmod:
       digitalWrite(ledPin[2], LOW);
-      break;  
+      break;
+    default:
+      break;
   }
 
-  if (Bluefruit.connected()) {
+  updateButtons();
 
-    updateButtons();
+  if (Bluefruit.connected()) {
 
     if (hasKeyPressed) {
       blehid.keyRelease();
     }
 
-    if (hasCosumerKeyPressed) {
+    if (hasConsumerKeyPressed) {
       blehid.consumerKeyRelease();
     }
 
@@ -216,7 +215,7 @@ void loop() {
       previousMillis = currentMillis;
       if (!duringLongpress) {
         hasKeyPressed = false;
-        hasCosumerKeyPressed = false;
+        hasConsumerKeyPressed = false;
       }
     }
   }
@@ -331,7 +330,7 @@ void click1() {
   switch (jelenlegiUzemmod) {
     case normalUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_ARROW_LEFT, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = true;
@@ -341,7 +340,7 @@ void click1() {
       }
     case versenyEdzesUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_PAGE_DOWN, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = true;
@@ -351,13 +350,15 @@ void click1() {
       }
     case mediaVezerloUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           blehid.consumerKeyPress(0, HID_USAGE_CONSUMER_SCAN_PREVIOUS);
-          hasCosumerKeyPressed = true;
+          hasConsumerKeyPressed = true;
           delay(5);
         }
         break;
       }
+    default:
+      break;
   }
 }
 
@@ -368,7 +369,7 @@ void doubleclick1() {
   switch (jelenlegiUzemmod) {
     case normalUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_F9, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = true;
@@ -378,7 +379,7 @@ void doubleclick1() {
       }
     case versenyEdzesUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_KEYPAD_SUBTRACT, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = true;
@@ -388,7 +389,7 @@ void doubleclick1() {
       }
     case mediaVezerloUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_F9, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = true;
@@ -396,6 +397,8 @@ void doubleclick1() {
         }
         break;
       }
+    default:
+      break;
   }
 }
 
@@ -405,9 +408,9 @@ void longPressStart1() {
   switch (jelenlegiUzemmod) {
     case normalUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
-          uint8_t keycodes[6] = { HID_KEY_GUI_LEFT, HID_KEY_ALT_LEFT, HID_KEY_R, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
-          blehid.keyboardReport(0, keycodes);
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
+          uint8_t keycodes[6] = { HID_KEY_R, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
+          blehid.keyboardReport(KEYBOARD_MODIFIER_LEFTGUI | KEYBOARD_MODIFIER_LEFTALT, keycodes);
           hasKeyPressed = true;
           delay(5);
         }
@@ -415,7 +418,7 @@ void longPressStart1() {
       }
     case versenyEdzesUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_ARROW_LEFT, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = true;
@@ -425,14 +428,16 @@ void longPressStart1() {
       }
     case mediaVezerloUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
-          uint8_t keycodes[6] = { HID_KEY_GUI_LEFT, HID_KEY_ALT_LEFT, HID_KEY_R, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
-          blehid.keyboardReport(0, keycodes);
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
+          uint8_t keycodes[6] = { HID_KEY_R, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
+          blehid.keyboardReport(KEYBOARD_MODIFIER_LEFTGUI | KEYBOARD_MODIFIER_LEFTALT, keycodes);
           hasKeyPressed = true;
           delay(5);
         }
         break;
       }
+    default:
+      break;
   }
 }
 
@@ -452,7 +457,7 @@ void click2() {
   switch (jelenlegiUzemmod) {
     case normalUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_ENTER, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = true;
@@ -462,7 +467,7 @@ void click2() {
       }
     case versenyEdzesUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_SPACE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = true;
@@ -472,13 +477,15 @@ void click2() {
       }
     case mediaVezerloUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           blehid.consumerKeyPress(0, HID_USAGE_CONSUMER_PLAY_PAUSE);
-          hasCosumerKeyPressed = true;
+          hasConsumerKeyPressed = true;
           delay(5);
         }
         break;
       }
+    default:
+      break;
   }
 }
 
@@ -488,7 +495,7 @@ void doubleclick2() {
   switch (jelenlegiUzemmod) {
     case normalUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_ESCAPE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = true;
@@ -498,7 +505,7 @@ void doubleclick2() {
       }
     case versenyEdzesUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_TAB, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = true;
@@ -508,7 +515,7 @@ void doubleclick2() {
       }
     case mediaVezerloUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_ESCAPE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = true;
@@ -516,6 +523,8 @@ void doubleclick2() {
         }
         break;
       }
+    default:
+      break;
   }
 }
 
@@ -525,7 +534,7 @@ void longPressStart2() {
   switch (jelenlegiUzemmod) {
     case normalUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_H, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = true;
@@ -535,7 +544,7 @@ void longPressStart2() {
       }
     case versenyEdzesUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_ENTER, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = true;
@@ -545,14 +554,16 @@ void longPressStart2() {
       }
     case mediaVezerloUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
-          uint8_t keycodes[6] = { HID_KEY_ALT_LEFT, HID_KEY_TAB, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
-          blehid.keyboardReport(0, keycodes);
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
+          uint8_t keycodes[6] = { HID_KEY_TAB, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
+          blehid.keyboardReport(KEYBOARD_MODIFIER_LEFTALT, keycodes);
           hasKeyPressed = true;
           delay(25);
         }
         break;
       }
+    default:
+      break;
   }
 }
 
@@ -572,7 +583,7 @@ void click3() {
   switch (jelenlegiUzemmod) {
     case normalUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_ARROW_RIGHT, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = true;
@@ -582,7 +593,7 @@ void click3() {
       }
     case versenyEdzesUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_PAGE_UP, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = true;
@@ -592,13 +603,15 @@ void click3() {
       }
     case mediaVezerloUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           blehid.consumerKeyPress(0, HID_USAGE_CONSUMER_SCAN_NEXT);
-          hasCosumerKeyPressed = true;
+          hasConsumerKeyPressed = true;
           delay(5);
         }
         break;
       }
+    default:
+      break;
   }
 }
 
@@ -608,7 +621,7 @@ void doubleclick3() {
   switch (jelenlegiUzemmod) {
     case normalUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_F10, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = true;
@@ -618,7 +631,7 @@ void doubleclick3() {
       }
     case versenyEdzesUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_KEYPAD_ADD, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = true;
@@ -628,7 +641,7 @@ void doubleclick3() {
       }
     case mediaVezerloUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_F10, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = true;
@@ -636,6 +649,8 @@ void doubleclick3() {
         }
         break;
       }
+    default:
+      break;
   }
 }
 
@@ -645,9 +660,9 @@ void longPressStart3() {
   switch (jelenlegiUzemmod) {
     case normalUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
-          uint8_t keycodes[6] = { HID_KEY_GUI_LEFT, HID_KEY_ALT_LEFT, HID_KEY_G, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
-          blehid.keyboardReport(0, keycodes);
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
+          uint8_t keycodes[6] = { HID_KEY_G, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
+          blehid.keyboardReport(KEYBOARD_MODIFIER_LEFTGUI | KEYBOARD_MODIFIER_LEFTALT, keycodes);
           hasKeyPressed = true;
           delay(5);
         }
@@ -655,7 +670,7 @@ void longPressStart3() {
       }
     case versenyEdzesUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_ARROW_RIGHT, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = true;
@@ -665,14 +680,16 @@ void longPressStart3() {
       }
     case mediaVezerloUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
-          uint8_t keycodes[6] = { HID_KEY_GUI_LEFT, HID_KEY_ALT_LEFT, HID_KEY_G, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
-          blehid.keyboardReport(0, keycodes);
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
+          uint8_t keycodes[6] = { HID_KEY_G, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
+          blehid.keyboardReport(KEYBOARD_MODIFIER_LEFTGUI | KEYBOARD_MODIFIER_LEFTALT, keycodes);
           hasKeyPressed = true;
           delay(5);
         }
         break;
       }
+    default:
+      break;
   }
 }
 
@@ -692,7 +709,7 @@ void click4() {
   switch (jelenlegiUzemmod) {
     case normalUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_ARROW_DOWN, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = true;
@@ -702,7 +719,7 @@ void click4() {
       }
     case versenyEdzesUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_G, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = true;
@@ -712,13 +729,15 @@ void click4() {
       }
     case mediaVezerloUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           blehid.consumerKeyPress(0, HID_USAGE_CONSUMER_MUTE);
-          hasCosumerKeyPressed = true;
+          hasConsumerKeyPressed = true;
           delay(5);
         }
         break;
       }
+    default:
+      break;
   }
 }
 
@@ -726,7 +745,7 @@ void click4() {
 void doubleclick4() {
   Serial.println("Button 4 doubleclick.");
   fct_WatchdogReset();
-  if (!hasCosumerKeyPressed && !hasKeyPressed) {
+  if (!hasConsumerKeyPressed && !hasKeyPressed) {
     switch (jelenlegiUzemmod) {
       case normalUzemmod:
         jelenlegiUzemmod = versenyEdzesUzemmod;
@@ -736,6 +755,8 @@ void doubleclick4() {
         break;
       case mediaVezerloUzemmod:
         jelenlegiUzemmod = normalUzemmod;
+        break;
+      default:
         break;
     }
     hasKeyPressed = true;
@@ -754,7 +775,7 @@ void longPress4() {
   switch (jelenlegiUzemmod) {
     case normalUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_ARROW_DOWN, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = false;
@@ -765,7 +786,7 @@ void longPress4() {
       }
     case versenyEdzesUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_ARROW_DOWN, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = false;
@@ -776,15 +797,17 @@ void longPress4() {
       }
     case mediaVezerloUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           blehid.consumerKeyPress(0, HID_USAGE_CONSUMER_VOLUME_DECREMENT);
-          hasCosumerKeyPressed = false;
+          hasConsumerKeyPressed = false;
           hasKeyPressed = false;
           duringLongpress = true;
           delay(50);
         }
         break;
       }
+    default:
+      break;
   }
 }
 
@@ -806,11 +829,13 @@ void longPressStop4() {
       }
     case mediaVezerloUzemmod:
       {
-        hasCosumerKeyPressed = true;
+        hasConsumerKeyPressed = true;
         hasKeyPressed = true;
         duringLongpress = false;
         break;
       }
+    default:
+      break;
   }
 }
 
@@ -820,7 +845,7 @@ void click5() {
   switch (jelenlegiUzemmod) {
     case normalUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_ARROW_UP, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = true;
@@ -830,7 +855,7 @@ void click5() {
       }
     case versenyEdzesUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_E, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = true;
@@ -840,13 +865,15 @@ void click5() {
       }
     case mediaVezerloUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           blehid.consumerKeyPress(0, HID_USAGE_CONSUMER_AL_CONSUMER_CONTROL_CONFIGURATION);
-          hasCosumerKeyPressed = true;
+          hasConsumerKeyPressed = true;
           delay(35);
         }
         break;
       }
+    default:
+      break;
   }
 }
 
@@ -856,7 +883,7 @@ void doubleclick5() {
   switch (jelenlegiUzemmod) {
     case normalUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           nezet++;
           uint8_t HID_KEYS[9] = { HID_KEY_1, HID_KEY_2, HID_KEY_3, HID_KEY_4, HID_KEY_5, HID_KEY_6, HID_KEY_7, HID_KEY_8, HID_KEY_9 };
           uint8_t keycodeView[6] = { HID_KEYS[nezet - 1], HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
@@ -871,7 +898,7 @@ void doubleclick5() {
       }
     case versenyEdzesUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           nezet++;
           uint8_t HID_KEYS[9] = { HID_KEY_1, HID_KEY_2, HID_KEY_3, HID_KEY_4, HID_KEY_5, HID_KEY_6, HID_KEY_7, HID_KEY_8, HID_KEY_9 };
           uint8_t keycodeView[6] = { HID_KEYS[nezet - 1], HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
@@ -886,16 +913,19 @@ void doubleclick5() {
       }
     case mediaVezerloUzemmod:
       {
-        nezet++;
-        uint8_t HID_KEYS[9] = { HID_KEY_1, HID_KEY_2, HID_KEY_3, HID_KEY_4, HID_KEY_5, HID_KEY_6, HID_KEY_7, HID_KEY_8, HID_KEY_9 };
-        uint8_t keycodeView[6] = { HID_KEYS[nezet - 1], HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
-        blehid.keyboardReport(0, keycodeView);
-        if (nezet == 9) {
-          nezet = 0;
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
+          if (nezet >= 9) nezet = 0;
+          nezet++;
+          uint8_t HID_KEYS[9] = { HID_KEY_1, HID_KEY_2, HID_KEY_3, HID_KEY_4, HID_KEY_5, HID_KEY_6, HID_KEY_7, HID_KEY_8, HID_KEY_9 };
+          uint8_t keycodeView[6] = { HID_KEYS[nezet - 1], HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
+          blehid.keyboardReport(0, keycodeView);
+          hasKeyPressed = true;
+          delay(5);
         }
-        hasKeyPressed = true;
         break;
       }
+    default:
+      break;
   }
 }
 
@@ -905,7 +935,7 @@ void longPressStart5() {
   switch (jelenlegiUzemmod) {
     case normalUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_T, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = true;
@@ -915,7 +945,7 @@ void longPressStart5() {
       }
     case versenyEdzesUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           uint8_t keycodes[6] = { HID_KEY_ARROW_UP, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodes);
           hasKeyPressed = true;
@@ -927,6 +957,8 @@ void longPressStart5() {
       {
         break;
       }
+    default:
+      break;
   }
 }
 
@@ -944,15 +976,17 @@ void longPress5() {
       }
     case mediaVezerloUzemmod:
       {
-        if (!hasCosumerKeyPressed && !hasKeyPressed) {
+        if (!hasConsumerKeyPressed && !hasKeyPressed) {
           blehid.consumerKeyPress(0, HID_USAGE_CONSUMER_VOLUME_INCREMENT);
-          hasCosumerKeyPressed = false;
+          hasConsumerKeyPressed = false;
           hasKeyPressed = false;
           duringLongpress = true;
           delay(50);
         }
         break;
       }
+    default:
+      break;
   }
 }
 
@@ -970,10 +1004,12 @@ void longPressStop5() {
       }
     case mediaVezerloUzemmod:
       {
-        hasCosumerKeyPressed = true;
+        hasConsumerKeyPressed = true;
         hasKeyPressed = true;
         duringLongpress = false;
         break;
       }
+    default:
+      break;
   }
 }
