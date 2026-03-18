@@ -32,8 +32,8 @@ const int BUTTON_PIN[5] = { 0, 1, 2, 3, 4 };  // A gombokhoz csatlakoztatott tü
 const int numOfButtons = sizeof(BUTTON_PIN) / sizeof(BUTTON_PIN[0]);
 bool hasKeyPressed = false;
 bool hasConsumerKeyPressed = false;
-unsigned long previousMillis = 0;
-const long interval = 1000;
+unsigned long keyPressMillis = 0;
+const int keyReleaseDelay = 100; // ms delay before key release (configurable)
 int offDelay = 900; //sleep delay
 int nezet = 0;
 bool duringLongpress = false;
@@ -122,6 +122,7 @@ void setup() {
   }
   pinMode(WAKEUP_PIN, INPUT_PULLUP_SENSE);
   pinMode(pin_charging_current, OUTPUT);  //charging current
+  digitalWrite(pin_charging_current, LOW);  //toltes alacsony árammal
 
   NRF_POWER->DCDCEN = 1;
 
@@ -170,13 +171,11 @@ void setup() {
   bledis.begin();
   blehid.begin();
   Bluefruit.Periph.setConnInterval(9, 12);
+  Bluefruit.Periph.setDisconnectCallback(disconnect_callback);
   startAdv();
 }
 
 void loop() {
-
-  digitalWrite(pin_charging_current, LOW);
-  //toltes alacsony árammal
 
   uzemmod elozoUzemmod = jelenlegiUzemmod;
 
@@ -199,57 +198,31 @@ void loop() {
 
   updateButtons();
 
+  if ((hasKeyPressed || hasConsumerKeyPressed) && keyPressMillis == 0) {
+    keyPressMillis = millis();
+  }
+
   if (Bluefruit.connected()) {
-
-    if (hasKeyPressed) {
-      blehid.keyRelease();
-    }
-
-    if (hasConsumerKeyPressed) {
-      blehid.consumerKeyRelease();
-    }
-
     unsigned long currentMillis = millis();
 
-    if (currentMillis - previousMillis >= interval) {
-      previousMillis = currentMillis;
-      if (!duringLongpress) {
+    if (!duringLongpress && keyPressMillis > 0 && (currentMillis - keyPressMillis >= keyReleaseDelay)) {
+      if (hasKeyPressed) {
+        blehid.keyRelease();
         hasKeyPressed = false;
+      }
+      if (hasConsumerKeyPressed) {
+        blehid.consumerKeyRelease();
         hasConsumerKeyPressed = false;
       }
+      keyPressMillis = 0;
     }
   }
 
   if (elozoUzemmod != jelenlegiUzemmod) {
     Serial.println("A jelenlegiUzemmod változó értéke megváltozott.");
-    Serial.print("Open " FILENAME " file to write ... ");
-    InternalFS.remove(FILENAME);
-
-    if (jelenlegiUzemmod == normalUzemmod) {
-      if (file.open(FILENAME, FILE_O_WRITE)) {
-        Serial.println("OK");
-        file.write(CONTENTNormal, strlen(CONTENTNormal));
-        file.close();
-      } else {
-        Serial.println("Failed! CONTENTNormal");
-      }
-    } else if (jelenlegiUzemmod == versenyEdzesUzemmod) {
-      if (file.open(FILENAME, FILE_O_WRITE)) {
-        Serial.println("OK");
-        file.write(CONTENTVerseny, strlen(CONTENTVerseny));
-        file.close();
-      } else {
-        Serial.println("Failed! CONTENTVerseny");
-      }
-    } else if (jelenlegiUzemmod == mediaVezerloUzemmod) {
-      if (file.open(FILENAME, FILE_O_WRITE)) {
-        Serial.println("OK");
-        file.write(CONTENTMedia, strlen(CONTENTMedia));
-        file.close();
-      } else {
-        Serial.println("Failed! CONTENTMedia");
-      }
-    }
+    if (jelenlegiUzemmod == normalUzemmod) saveUzemmod(CONTENTNormal);
+    else if (jelenlegiUzemmod == versenyEdzesUzemmod) saveUzemmod(CONTENTVerseny);
+    else if (jelenlegiUzemmod == mediaVezerloUzemmod) saveUzemmod(CONTENTMedia);
   }
 
   watchDOG.update();
@@ -270,6 +243,26 @@ static void disconnectBle() {
   }
 }
 
+void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
+  (void)conn_handle;
+  (void)reason;
+  hasKeyPressed = false;
+  hasConsumerKeyPressed = false;
+  duringLongpress = false;
+}
+
+void saveUzemmod(const char* content) {
+  Serial.print("Open " FILENAME " file to write ... ");
+  InternalFS.remove(FILENAME);
+  if (file.open(FILENAME, FILE_O_WRITE)) {
+    Serial.println("OK");
+    file.write(content, strlen(content));
+    file.close();
+  } else {
+    Serial.println("Failed!");
+  }
+}
+
 void ble_sleep(void) {
   Bluefruit.Advertising.restartOnDisconnect(false);
   disconnectBle();
@@ -277,11 +270,11 @@ void ble_sleep(void) {
 }
 
 void fct_powerdown() {
+  ble_sleep();
   InternalFS.end();
   for (int i = 0; i < numOfLeds; i++) {
     digitalWrite(ledPin[i], HIGH);
   }
-  ble_sleep();
   nrf_gpio_cfg_sense_input(g_ADigitalPinMap[WAKEUP_PIN], NRF_GPIO_PIN_PULLUP, NRF_GPIO_PIN_SENSE_LOW);
   QSPIF_sleep();
   if (checkForSoftDevice() == 1) {
@@ -884,13 +877,11 @@ void doubleclick5() {
     case normalUzemmod:
       {
         if (!hasConsumerKeyPressed && !hasKeyPressed) {
+          if (nezet >= 9) nezet = 0;
           nezet++;
           uint8_t HID_KEYS[9] = { HID_KEY_1, HID_KEY_2, HID_KEY_3, HID_KEY_4, HID_KEY_5, HID_KEY_6, HID_KEY_7, HID_KEY_8, HID_KEY_9 };
           uint8_t keycodeView[6] = { HID_KEYS[nezet - 1], HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodeView);
-          if (nezet == 9) {
-            nezet = 0;
-          }
           hasKeyPressed = true;
           delay(5);
         }
@@ -899,13 +890,11 @@ void doubleclick5() {
     case versenyEdzesUzemmod:
       {
         if (!hasConsumerKeyPressed && !hasKeyPressed) {
+          if (nezet >= 9) nezet = 0;
           nezet++;
           uint8_t HID_KEYS[9] = { HID_KEY_1, HID_KEY_2, HID_KEY_3, HID_KEY_4, HID_KEY_5, HID_KEY_6, HID_KEY_7, HID_KEY_8, HID_KEY_9 };
           uint8_t keycodeView[6] = { HID_KEYS[nezet - 1], HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
           blehid.keyboardReport(0, keycodeView);
-          if (nezet == 9) {
-            nezet = 0;
-          }
           hasKeyPressed = true;
           delay(5);
         }
