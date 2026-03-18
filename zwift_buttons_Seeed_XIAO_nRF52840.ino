@@ -109,6 +109,9 @@ void setup() {
     jelenlegiUzemmod = versenyEdzesUzemmod;
   } else if (taroltUzemmod == CONTENTMedia) {
     jelenlegiUzemmod = mediaVezerloUzemmod;
+  } else {
+    Serial.println("Ismeretlen uzemmod, default: normalUzemmod");
+    jelenlegiUzemmod = normalUzemmod;
   }
 
   Serial.println("Done");
@@ -252,15 +255,22 @@ void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
 }
 
 void saveUzemmod(const char* content) {
-  Serial.print("Open " FILENAME " file to write ... ");
+  const int maxRetries = 3;
   InternalFS.remove(FILENAME);
-  if (file.open(FILENAME, FILE_O_WRITE)) {
-    Serial.println("OK");
-    file.write(content, strlen(content));
-    file.close();
-  } else {
+  for (int attempt = 1; attempt <= maxRetries; attempt++) {
+    Serial.print("Open " FILENAME " file to write (attempt ");
+    Serial.print(attempt);
+    Serial.print(") ... ");
+    if (file.open(FILENAME, FILE_O_WRITE)) {
+      Serial.println("OK");
+      file.write(content, strlen(content));
+      file.close();
+      return;
+    }
     Serial.println("Failed!");
+    delay(50);
   }
+  Serial.println("saveUzemmod: all retries failed!");
 }
 
 void ble_sleep(void) {
