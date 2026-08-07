@@ -5,7 +5,29 @@ Ablakos (Tkinter) segédprogram, amivel a **3 üzemmód × 5 gomb × 3 esemény*
 állíthatók be, USB soros porton elküldhetők az eszköznek, és elmenthetők annak
 belső flash memóriájába.
 
-## Telepítés
+## Indítás Windows alatt (ajánlott)
+
+Kattints duplán a **`zwift_config.bat`** fájlra.
+
+A parancsfájl mindent elintéz:
+
+- megkeresi a Pythont (`py` launcher, majd `python`),
+- ellenőrzi a verziót (3.7 vagy újabb kell),
+- ellenőrzi a `tkinter` meglétét,
+- ha hiányzik a `pyserial`, **automatikusan telepíti** (ha a rendszerszintű
+  telepítés nem megy, `--user` módban újrapróbálja),
+- majd elindítja a programot.
+
+A háttérben nyitva marad egy parancssori ablak – ide írja ki a program a
+hibaüzeneteket. Hiba esetén az ablak nem záródik be azonnal, hogy elolvashasd,
+mi történt.
+
+Ha a Python egyáltalán nincs telepítve, a parancsfájl kiírja a teendőt: töltsd
+le a <https://www.python.org/downloads/> oldalról, és a telepítőben pipáld be
+az **„Add python.exe to PATH”** opciót, valamint a **„tcl/tk and IDLE”**
+komponenst.
+
+## Indítás kézzel (Linux / macOS / Windows)
 
 ```bash
 pip install -r requirements.txt
@@ -46,6 +68,7 @@ nélkül is szerkeszthető egy kiosztás.
 
 | Fájl | Leírás |
 |------|--------|
+| `zwift_config.bat` | Windows indító parancsfájl (függőség-ellenőrzéssel és -telepítéssel) |
 | `zwift_config_gui.py` | A konfiguráló program (ablakos felület + soros kommunikáció) |
 | `hid_tables.py` | HID billentyűkódok, média usage-ek, Tkinter keysym → HID leképezés |
 | `default_keymap.json` | A firmware gyári kiosztása |

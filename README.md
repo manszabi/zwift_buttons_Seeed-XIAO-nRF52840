@@ -104,7 +104,13 @@ Az üzemmód automatikusan mentődik a belső fájlrendszerbe, így újraindít�
 ## ⚙️ Gomb-kiosztás testreszabása
 
 A repóban található `tools/` mappa egy ablakos Python programot tartalmaz,
-amivel USB-n keresztül átállítható az összes billentyű-kombináció:
+amivel USB-n keresztül átállítható az összes billentyű-kombináció.
+
+**Windows alatt** elég duplán kattintani a `tools\zwift_config.bat` fájlra – ez
+ellenőrzi a Python telepítést, szükség esetén feltelepíti a hiányzó `pyserial`
+csomagot, majd elindítja a programot.
+
+**Linux / macOS alatt** (vagy kézzel Windowson):
 
 ```bash
 cd tools
