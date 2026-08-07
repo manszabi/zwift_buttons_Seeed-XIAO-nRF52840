@@ -17,6 +17,7 @@
 using namespace Adafruit_LittleFS_Namespace;
 
 #define FILENAME "/jelenlegiuzemmod.txt"
+#define FILENAMETMP "/jelenlegiuzemmod.tmp"
 #define KEYMAPFILE "/keymap.bin"
 #define KEYMAPTMPFILE "/keymap.tmp"
 #define CONTENTNormal "normalUzemmod"
@@ -113,14 +114,11 @@ void setup() {
     taroltUzemmod = buffer;
     file.close();
   } else {
-    Serial.print("Open " FILENAME " file to write ... ");
-    if (file.open(FILENAME, FILE_O_WRITE)) {
-      Serial.println("OK");
-      file.write(CONTENTNormal, strlen(CONTENTNormal));
-      file.close();
-    } else {
-      Serial.println("Failed!");
-    }
+    Serial.print("Nincs " FILENAME ", letrehozas alapertelmezessel ... ");
+    Serial.println(writeFileAtomic(FILENAME, FILENAMETMP, CONTENTNormal,
+                                   strlen(CONTENTNormal))
+                     ? "OK"
+                     : "Failed!");
   }
 
   if (taroltUzemmod == CONTENTNormal) {
@@ -283,23 +281,38 @@ void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
   keyPressMillis = 0;
 }
 
-void saveUzemmod(const char* content) {
+// Biztonságos fájlírás: előbb ideiglenes fájlba írunk, és csak hibátlan kiírás
+// után cseréljük le a meglévőt egy atomikus átnevezéssel. Így egy félbemaradt
+// mentés nem teszi tönkre a korábbi tartalmat.
+bool writeFileAtomic(const char* path, const char* tmpPath,
+                     const void* data, size_t len) {
   const int maxRetries = 3;
-  InternalFS.remove(FILENAME);
   for (int attempt = 1; attempt <= maxRetries; attempt++) {
-    Serial.print("Open " FILENAME " file to write (attempt ");
-    Serial.print(attempt);
-    Serial.print(") ... ");
-    if (file.open(FILENAME, FILE_O_WRITE)) {
-      Serial.println("OK");
-      file.write(content, strlen(content));
-      file.close();
-      return;
+    InternalFS.remove(tmpPath);
+    Adafruit_LittleFS_Namespace::File f(InternalFS);
+    if (f.open(tmpPath, FILE_O_WRITE)) {
+      size_t written = f.write((const uint8_t*)data, len);
+      f.close();
+      if (written == len) {
+        if (InternalFS.rename(tmpPath, path)) return true;
+        // Ha a felülírásos átnevezés nem megy, előbb töröljük a régit.
+        InternalFS.remove(path);
+        if (InternalFS.rename(tmpPath, path)) return true;
+      }
     }
-    Serial.println("Failed!");
     delay(50);
   }
-  Serial.println("saveUzemmod: all retries failed!");
+  InternalFS.remove(tmpPath);
+  return false;
+}
+
+void saveUzemmod(const char* content) {
+  if (writeFileAtomic(FILENAME, FILENAMETMP, content, strlen(content))) {
+    Serial.print("Uzemmod elmentve: ");
+    Serial.println(content);
+  } else {
+    Serial.println("saveUzemmod: a mentes nem sikerult, a korabbi ertek megmaradt!");
+  }
 }
 
 void ble_sleep(void) {
@@ -505,26 +518,7 @@ bool saveKeymap() {
   keymap.reserved = 0;
   keymap.crc = keymapCrc(keymap);
 
-  // Előbb ideiglenes fájlba írunk, és csak hibátlan kiírás után cseréljük le a
-  // meglévőt. Így egy félbemaradt mentés nem teszi tönkre a korábbi kiosztást.
-  const int maxRetries = 3;
-  for (int attempt = 1; attempt <= maxRetries; attempt++) {
-    InternalFS.remove(KEYMAPTMPFILE);
-    Adafruit_LittleFS_Namespace::File f(InternalFS);
-    if (f.open(KEYMAPTMPFILE, FILE_O_WRITE)) {
-      uint32_t written = f.write((const uint8_t*)&keymap, sizeof(keymap));
-      f.close();
-      if (written == sizeof(keymap)) {
-        if (InternalFS.rename(KEYMAPTMPFILE, KEYMAPFILE)) return true;
-        // Ha a felülírásos átnevezés nem megy, előbb töröljük a régit.
-        InternalFS.remove(KEYMAPFILE);
-        if (InternalFS.rename(KEYMAPTMPFILE, KEYMAPFILE)) return true;
-      }
-    }
-    delay(50);
-  }
-  InternalFS.remove(KEYMAPTMPFILE);
-  return false;
+  return writeFileAtomic(KEYMAPFILE, KEYMAPTMPFILE, &keymap, sizeof(keymap));
 }
 
 
