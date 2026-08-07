@@ -100,7 +100,7 @@ A `MAP` / `SET` mezői:
 | `e` – esemény | 0 = rövid, 1 = dupla, 2 = hosszú |
 | `t` – típus | 0 = nincs, 1 = billentyű, 2 = média, 3 = üzemmód váltás, 4 = nézetváltás |
 | `mod` | módosító bitmaszk: 1 = Ctrl, 2 = Shift, 4 = Alt, 8 = Win (jobb oldali: 16/32/64/128) |
-| `code` | HID keycode (típus 1) vagy consumer usage (típus 2) |
+| `code` | HID keycode (típus 1, max. `255`) vagy consumer usage (típus 2, max. `65535`) |
 | `rep` | 0/1 – ismétlés nyomva tartás közben (csak hosszú nyomásnál) |
 | `ms` | ismétlési idő ezredmásodpercben |
 

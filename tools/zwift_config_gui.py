@@ -57,9 +57,6 @@ class Action(object):
         self.repeat = repeat
         self.repeat_ms = repeat_ms
 
-    def copy(self):
-        return Action(self.type, self.modifier, self.code, self.repeat, self.repeat_ms)
-
     def label(self):
         if self.type == ACT_KEY:
             text = key_label(self.modifier, self.code)
@@ -132,10 +129,16 @@ class DeviceLink(object):
         # A TinyUSB CDC-nek kell egy pillanat, mire kész a kapcsolat.
         time.sleep(0.4)
         self.ser.reset_input_buffer()
-        self.info = self.command("PING", timeout=3.0)
-        if not self.info.startswith("OK ZWIFT_BUTTONS"):
+        # Bármi hiba esetén a portot le kell zárni, különben nyitva ragad, és a
+        # program azt hinné, hogy van érvényes kapcsolat.
+        try:
+            self.info = self.command("PING", timeout=3.0)
+            if not self.info.startswith("OK ZWIFT_BUTTONS"):
+                raise DeviceError(
+                    "Az eszköz nem Zwift Buttons konfigurációs firmware-t futtat.")
+        except DeviceError:
             self.close()
-            raise DeviceError("Az eszköz nem Zwift Buttons konfigurációs firmware-t futtat.")
+            raise
         # A gombok debug üzenetei ne zavarják a válaszokat.
         try:
             self.command("DBG 0", timeout=1.5)
@@ -262,6 +265,12 @@ class ActionDialog(tk.Toplevel):
 
         self.type_var = tk.IntVar(value=action.type)
         self.key_var = tk.IntVar(value=action.code if action.type == ACT_KEY else 0)
+        # Az eszközön olyan média-kód is lehet, ami nincs a listánkban (pl. soros
+        # terminálból állították be). Ilyenkor a listát egészítjük ki, hogy a
+        # szerkesztés ne írja felül csendben az eredeti értéket.
+        self.consumer_choices = list(CONSUMER_KEYS)
+        if action.type == ACT_CONSUMER and action.code not in dict(CONSUMER_KEYS):
+            self.consumer_choices.append((action.code, consumer_label(action.code)))
         self.consumer_var = tk.IntVar(
             value=action.code if action.type == ACT_CONSUMER else CONSUMER_KEYS[0][0])
         self.mod_vars = {}
@@ -343,7 +352,7 @@ class ActionDialog(tk.Toplevel):
         self.consumer_box.pack(fill="x", pady=(8, 0))
         self.consumer_combo = ttk.Combobox(
             self.consumer_box, state="readonly", width=32,
-            values=[name for _, name in CONSUMER_KEYS])
+            values=[name for _, name in self.consumer_choices])
         self.consumer_combo.pack(fill="x")
         self.consumer_combo.bind("<<ComboboxSelected>>", self._on_consumer_combo)
 
@@ -451,7 +460,7 @@ class ActionDialog(tk.Toplevel):
         idx = self.consumer_combo.current()
         if idx >= 0:
             self.type_var.set(ACT_CONSUMER)
-            self.consumer_var.set(CONSUMER_KEYS[idx][0])
+            self.consumer_var.set(self.consumer_choices[idx][0])
             self._refresh_state()
 
     # -- állapot --
@@ -474,22 +483,18 @@ class ActionDialog(tk.Toplevel):
     def _refresh_state(self):
         atype = self.type_var.get()
 
-        key_state = "normal" if atype == ACT_KEY else "disabled"
-        self._set_widget_state(self.key_box, key_state)
-        if atype == ACT_KEY:
-            self.key_combo.configure(state="readonly")
-            code = self.key_var.get()
-            index = next((i for i, (c, _) in enumerate(KEY_CHOICES) if c == code), 0)
-            self.key_combo.current(index)
+        # A billentyű-felvevő és a listák szándékosan mindig aktívak: ha a
+        # felhasználó lenyom egy billentyűt vagy választ a listából, az magától
+        # átállítja a művelet típusát. (Letiltva a felvevő mező meg sem kapná a
+        # billentyű-eseményeket, ami épp a fő használati módot törné el.)
+        code = self.key_var.get()
+        index = next((i for i, (c, _) in enumerate(KEY_CHOICES) if c == code), 0)
+        self.key_combo.current(index)
 
-        consumer_state = "normal" if atype == ACT_CONSUMER else "disabled"
-        self._set_widget_state(self.consumer_box, consumer_state)
-        if atype == ACT_CONSUMER:
-            self.consumer_combo.configure(state="readonly")
-            code = self.consumer_var.get()
-            index = next((i for i, (c, _) in enumerate(CONSUMER_KEYS) if c == code), 0)
-            self.consumer_combo.current(index)
-            self.consumer_var.set(CONSUMER_KEYS[index][0])
+        code = self.consumer_var.get()
+        index = next((i for i, (c, _) in enumerate(self.consumer_choices)
+                      if c == code), 0)
+        self.consumer_combo.current(index)
 
         if self.repeat_box is not None:
             can_repeat = atype in (ACT_KEY, ACT_CONSUMER)
@@ -645,7 +650,7 @@ class App(ttk.Frame):
             self.keymap[mode][button][event] = dialog.result
             self.cells[(mode, button, event)].configure(text=dialog.result.label())
             self.dirty = True
-            self._set_status(self.status.cget("text"))
+            self._set_status("Módosítva – a „Küldés az eszközre” gombbal lép érvénybe.")
 
     # -- kapcsolat --
 

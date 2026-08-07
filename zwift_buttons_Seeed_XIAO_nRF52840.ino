@@ -18,6 +18,7 @@ using namespace Adafruit_LittleFS_Namespace;
 
 #define FILENAME "/jelenlegiuzemmod.txt"
 #define KEYMAPFILE "/keymap.bin"
+#define KEYMAPTMPFILE "/keymap.tmp"
 #define CONTENTNormal "normalUzemmod"
 #define CONTENTVerseny "versenyEdzesUzemmod"
 #define CONTENTMedia "mediaVezerloUzemmod"
@@ -504,20 +505,25 @@ bool saveKeymap() {
   keymap.reserved = 0;
   keymap.crc = keymapCrc(keymap);
 
+  // Előbb ideiglenes fájlba írunk, és csak hibátlan kiírás után cseréljük le a
+  // meglévőt. Így egy félbemaradt mentés nem teszi tönkre a korábbi kiosztást.
   const int maxRetries = 3;
-  InternalFS.remove(KEYMAPFILE);
   for (int attempt = 1; attempt <= maxRetries; attempt++) {
+    InternalFS.remove(KEYMAPTMPFILE);
     Adafruit_LittleFS_Namespace::File f(InternalFS);
-    if (f.open(KEYMAPFILE, FILE_O_WRITE)) {
+    if (f.open(KEYMAPTMPFILE, FILE_O_WRITE)) {
       uint32_t written = f.write((const uint8_t*)&keymap, sizeof(keymap));
       f.close();
       if (written == sizeof(keymap)) {
-        return true;
+        if (InternalFS.rename(KEYMAPTMPFILE, KEYMAPFILE)) return true;
+        // Ha a felülírásos átnevezés nem megy, előbb töröljük a régit.
+        InternalFS.remove(KEYMAPFILE);
+        if (InternalFS.rename(KEYMAPTMPFILE, KEYMAPFILE)) return true;
       }
-      InternalFS.remove(KEYMAPFILE);
     }
     delay(50);
   }
+  InternalFS.remove(KEYMAPTMPFILE);
   return false;
 }
 
@@ -564,6 +570,9 @@ static void fireAction(uint8_t btn, uint8_t evt) {
       break;
 
     case ACT_VIEW_CYCLE: {
+      // A számlálót csak akkor léptetjük, ha a billentyű tényleg kimegy,
+      // különben elcsúszna a Zwift-ben ténylegesen beállított nézettől.
+      if (!Bluefruit.connected() || hasKeyPressed || hasConsumerKeyPressed) break;
       if (nezet >= 9) nezet = 0;
       nezet++;
       static const uint8_t HID_KEYS[9] = { HID_KEY_1, HID_KEY_2, HID_KEY_3, HID_KEY_4, HID_KEY_5,
@@ -599,6 +608,17 @@ static bool isRepeating(const KeyAction& a) {
   return a.repeat && (a.type == ACT_KEY || a.type == ACT_CONSUMER);
 }
 
+// Folyamatban lévő ismétlés lezárása. Mindkét jelzőt beállítjuk, hogy a
+// főciklus a billentyűzet- és a média-billentyűt is felengedje: nyomva tartás
+// közben a kettő közül bármelyik lehetett az utolsó kiküldött esemény.
+static void finishRepeat() {
+  repeatButton = -1;
+  repeatDue = false;
+  duringLongpress = false;
+  hasKeyPressed = true;
+  hasConsumerKeyPressed = true;
+}
+
 static void onClick(uint8_t btn) {
   if (debugSerial) { Serial.print("Button "); Serial.print(btn + 1); Serial.println(" click."); }
   fct_WatchdogReset();
@@ -616,6 +636,11 @@ static void onLongStart(uint8_t btn) {
   fct_WatchdogReset();
   const KeyAction& a = currentAction(btn, EV_LONG);
   if (isRepeating(a)) {
+    // Ha egy másik gomb ismétlése volt folyamatban (két gomb egyszerre
+    // nyomva), azt előbb rendesen lezárjuk, hogy ne ragadjon be a billentyű.
+    if (repeatButton >= 0 && repeatButton != (int8_t)btn) {
+      finishRepeat();
+    }
     repeatButton = (int8_t)btn;
     repeatDue = true;  // az első ismétlés azonnal menjen ki
     lastRepeatMillis = millis();
@@ -639,16 +664,8 @@ static void onLongStop(uint8_t btn) {
   if (debugSerial) { Serial.print("Button "); Serial.print(btn + 1); Serial.println(" longPress stop"); }
   fct_WatchdogReset();
   if (repeatButton != (int8_t)btn) return;
-
-  const KeyAction& a = currentAction(btn, EV_LONG);
-  repeatButton = -1;
-  duringLongpress = false;
   // A főciklus a keyReleaseDelay letelte után engedi fel a billentyűt.
-  if (a.type == ACT_KEY) {
-    hasKeyPressed = true;
-  } else if (a.type == ACT_CONSUMER) {
-    hasConsumerKeyPressed = true;
-  }
+  finishRepeat();
 }
 
 // A OneButton csak paraméter nélküli függvényeket fogad, ezért gombonként
@@ -731,6 +748,11 @@ static void cmdSet(const char* args) {
     return;
   }
   if (t >= ACT_TYPE_COUNT || mod > 0xFF || code > 0xFFFF || rep > 1 || ms > 0xFFFF) {
+    Serial.println("ERR VALUE");
+    return;
+  }
+  // A billentyűkód egy bájt; a nagyobb érték csendben csonkolódna a küldésnél.
+  if (t == ACT_KEY && code > 0xFF) {
     Serial.println("ERR VALUE");
     return;
   }
