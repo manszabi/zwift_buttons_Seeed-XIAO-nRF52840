@@ -11,7 +11,9 @@ Az eszköz 5 fizikai gombbal rendelkezik, és 3 különböző üzemmódot támog
 - **BLE HID billentyűzet** – Az eszköz Bluetooth billentyűzetként párosítható bármely számítógéphez, telefonhoz vagy tablethez
 - **5 fizikai gomb** – Mindegyik gombhoz 3 művelet tartozik: rövid nyomás (click), dupla kattintás (double-click), hosszú nyomás (long press)
 - **3 üzemmód** – Normál (Zwift), Verseny/Edzés, Média vezérlő
+- **Szabadon konfigurálható kiosztás** – Mind a 45 billentyű-kombináció (3 üzemmód × 5 gomb × 3 esemény) átállítható a mellékelt [Python konfiguráló programmal](tools/README.md), USB-n keresztül, újraprogramozás nélkül
 - **Üzemmód-mentés** – Az aktuális üzemmód a belső flash-memóriába mentődik, újraindítás után is megmarad
+- **Kiosztás-mentés** – A gomb-kiosztás is a belső flash-memóriába kerül (CRC-vel védve), újraindítás után is megmarad
 - **LED visszajelzés** – 3 szín (piros, kék, zöld) jelzi az aktuális üzemmódot
 - **Automatikus kikapcsolás** – 900 másodperc (15 perc) inaktivitás után alvó módba lép az energiatakarékosság érdekében
 - **Gombnyomásra ébredés** – Alvó módból a 2-es (WAKEUP_PIN) gomb megnyomásával kelthető fel
@@ -63,6 +65,10 @@ Az üzemmód automatikusan mentődik a belső fájlrendszerbe, így újraindít�
 
 ## 🎛️ Gombok funkciói
 
+> Az alábbi táblázatok a **gyári alapértelmezést** mutatják. Minden cella
+> szabadon átállítható a [konfiguráló programmal](tools/README.md), az eszköz
+> újraprogramozása nélkül.
+
 ### 🔴 Normál üzemmód (Zwift)
 
 | Gomb | Kattintás (Click) | Dupla kattintás (Double-click) | Hosszú nyomás (Long press) |
@@ -92,6 +98,32 @@ Az üzemmód automatikusan mentődik a belső fájlrendszerbe, így újraindít�
 | **Gomb 3** | ⏭ Következő szám | F10 | GUI+ALT+G |
 | **Gomb 4** | 🔇 Némítás | ⚙️ Üzemmód váltás | 🔉 Hangerő csökkentés (ismétlődő) |
 | **Gomb 5** | ⚙️ Beállítások megnyitás | 1-9 nézet váltás (ciklikus) | 🔊 Hangerő növelés (ismétlődő) |
+
+---
+
+## ⚙️ Gomb-kiosztás testreszabása
+
+A repóban található `tools/` mappa egy ablakos Python programot tartalmaz,
+amivel USB-n keresztül átállítható az összes billentyű-kombináció:
+
+```bash
+cd tools
+pip install -r requirements.txt
+python zwift_config_gui.py
+```
+
+1. Csatlakoztasd az eszközt USB-n, válaszd ki a soros portot, **Csatlakozás**.
+2. Kattints a táblázat bármelyik cellájára, és **nyomd le a kívánt
+   billentyű-kombinációt** – a program felveszi (a módosítók pipákkal is
+   állíthatók, illetve média billentyű, üzemmód váltás vagy nézetváltás is
+   választható).
+3. **Küldés az eszközre** – azonnal érvénybe lép.
+4. **Mentés az eszköz memóriájába** – hogy újraindítás után is megmaradjon.
+
+A kiosztás JSON fájlba is menthető és onnan visszatölthető, illetve bármikor
+visszaállítható a gyári alapértelmezés.
+
+Részletek és a soros protokoll leírása: [`tools/README.md`](tools/README.md).
 
 ---
 
@@ -130,6 +162,8 @@ A többi könyvtár a board csomaggal együtt települ.
 ## 🚀 Feltöltés
 
 1. Nyisd meg a `zwift_buttons_Seeed_XIAO_nRF52840.ino` fájlt az Arduino IDE-ben
+   (a `zwift_config.h` fájlnak ugyanabban a mappában kell lennie – a vázlat
+   fülein automatikusan megjelenik)
 2. Válaszd ki a megfelelő boardot: **Seeed XIAO nRF52840**
 3. Csatlakoztasd USB-n a mikrokontrollert
 4. Kattints az **Upload** gombra

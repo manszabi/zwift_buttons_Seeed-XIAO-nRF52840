@@ -1,0 +1,366 @@
+{
+  "format": "zwift-buttons-keymap",
+  "version": 1,
+  "modes": [
+    {
+      "name": "Normál (Zwift)",
+      "buttons": [
+        {
+          "click": {
+            "type": 1,
+            "modifier": 0,
+            "code": 80,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "double": {
+            "type": 1,
+            "modifier": 0,
+            "code": 66,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "long": {
+            "type": 1,
+            "modifier": 12,
+            "code": 21,
+            "repeat": 0,
+            "repeat_ms": 60
+          }
+        },
+        {
+          "click": {
+            "type": 1,
+            "modifier": 0,
+            "code": 40,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "double": {
+            "type": 1,
+            "modifier": 0,
+            "code": 41,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "long": {
+            "type": 1,
+            "modifier": 0,
+            "code": 11,
+            "repeat": 0,
+            "repeat_ms": 60
+          }
+        },
+        {
+          "click": {
+            "type": 1,
+            "modifier": 0,
+            "code": 79,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "double": {
+            "type": 1,
+            "modifier": 0,
+            "code": 67,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "long": {
+            "type": 1,
+            "modifier": 12,
+            "code": 10,
+            "repeat": 0,
+            "repeat_ms": 60
+          }
+        },
+        {
+          "click": {
+            "type": 1,
+            "modifier": 0,
+            "code": 81,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "double": {
+            "type": 3,
+            "modifier": 0,
+            "code": 0,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "long": {
+            "type": 1,
+            "modifier": 0,
+            "code": 81,
+            "repeat": 1,
+            "repeat_ms": 30
+          }
+        },
+        {
+          "click": {
+            "type": 1,
+            "modifier": 0,
+            "code": 82,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "double": {
+            "type": 4,
+            "modifier": 0,
+            "code": 0,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "long": {
+            "type": 1,
+            "modifier": 0,
+            "code": 23,
+            "repeat": 0,
+            "repeat_ms": 60
+          }
+        }
+      ]
+    },
+    {
+      "name": "Verseny / Edzés",
+      "buttons": [
+        {
+          "click": {
+            "type": 1,
+            "modifier": 0,
+            "code": 78,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "double": {
+            "type": 1,
+            "modifier": 0,
+            "code": 86,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "long": {
+            "type": 1,
+            "modifier": 0,
+            "code": 80,
+            "repeat": 0,
+            "repeat_ms": 60
+          }
+        },
+        {
+          "click": {
+            "type": 1,
+            "modifier": 0,
+            "code": 44,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "double": {
+            "type": 1,
+            "modifier": 0,
+            "code": 43,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "long": {
+            "type": 1,
+            "modifier": 0,
+            "code": 40,
+            "repeat": 0,
+            "repeat_ms": 60
+          }
+        },
+        {
+          "click": {
+            "type": 1,
+            "modifier": 0,
+            "code": 75,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "double": {
+            "type": 1,
+            "modifier": 0,
+            "code": 87,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "long": {
+            "type": 1,
+            "modifier": 0,
+            "code": 79,
+            "repeat": 0,
+            "repeat_ms": 60
+          }
+        },
+        {
+          "click": {
+            "type": 1,
+            "modifier": 0,
+            "code": 10,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "double": {
+            "type": 3,
+            "modifier": 0,
+            "code": 0,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "long": {
+            "type": 1,
+            "modifier": 0,
+            "code": 81,
+            "repeat": 1,
+            "repeat_ms": 70
+          }
+        },
+        {
+          "click": {
+            "type": 1,
+            "modifier": 0,
+            "code": 8,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "double": {
+            "type": 4,
+            "modifier": 0,
+            "code": 0,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "long": {
+            "type": 1,
+            "modifier": 0,
+            "code": 82,
+            "repeat": 0,
+            "repeat_ms": 60
+          }
+        }
+      ]
+    },
+    {
+      "name": "Média vezérlő",
+      "buttons": [
+        {
+          "click": {
+            "type": 2,
+            "modifier": 0,
+            "code": 182,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "double": {
+            "type": 1,
+            "modifier": 0,
+            "code": 66,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "long": {
+            "type": 1,
+            "modifier": 12,
+            "code": 21,
+            "repeat": 0,
+            "repeat_ms": 60
+          }
+        },
+        {
+          "click": {
+            "type": 2,
+            "modifier": 0,
+            "code": 205,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "double": {
+            "type": 1,
+            "modifier": 0,
+            "code": 41,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "long": {
+            "type": 1,
+            "modifier": 4,
+            "code": 43,
+            "repeat": 0,
+            "repeat_ms": 60
+          }
+        },
+        {
+          "click": {
+            "type": 2,
+            "modifier": 0,
+            "code": 181,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "double": {
+            "type": 1,
+            "modifier": 0,
+            "code": 67,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "long": {
+            "type": 1,
+            "modifier": 12,
+            "code": 10,
+            "repeat": 0,
+            "repeat_ms": 60
+          }
+        },
+        {
+          "click": {
+            "type": 2,
+            "modifier": 0,
+            "code": 226,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "double": {
+            "type": 3,
+            "modifier": 0,
+            "code": 0,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "long": {
+            "type": 2,
+            "modifier": 0,
+            "code": 234,
+            "repeat": 1,
+            "repeat_ms": 70
+          }
+        },
+        {
+          "click": {
+            "type": 2,
+            "modifier": 0,
+            "code": 387,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "double": {
+            "type": 4,
+            "modifier": 0,
+            "code": 0,
+            "repeat": 0,
+            "repeat_ms": 60
+          },
+          "long": {
+            "type": 2,
+            "modifier": 0,
+            "code": 233,
+            "repeat": 1,
+            "repeat_ms": 70
+          }
+        }
+      ]
+    }
+  ]
+}
