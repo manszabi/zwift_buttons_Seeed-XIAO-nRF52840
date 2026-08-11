@@ -9,6 +9,7 @@ Az eszköz 5 fizikai gombbal rendelkezik, és 3 különböző üzemmódot támog
 ## 📋 Jellemzők
 
 - **BLE HID billentyűzet** – Az eszköz Bluetooth billentyűzetként párosítható bármely számítógéphez, telefonhoz vagy tablethez
+- **Két eszköz egyszerre** – Egyidejűleg csatlakozhat pl. a Windows PC-hez és a telefonhoz; üzemmódonként állítható, hogy a parancsok melyikre menjenek
 - **5 fizikai gomb** – Mindegyik gombhoz 3 művelet tartozik: rövid nyomás (click), dupla kattintás (double-click), hosszú nyomás (long press)
 - **3 üzemmód** – Normál (Zwift), Verseny/Edzés, Média vezérlő
 - **Szabadon konfigurálható kiosztás** – Mind a 45 billentyű-kombináció (3 üzemmód × 5 gomb × 3 esemény) átállítható a mellékelt [Python konfiguráló programmal](tools/README.md), USB-n keresztül, újraprogramozás nélkül
@@ -52,6 +53,20 @@ Az eszköz 5 fizikai gombbal rendelkezik, és 3 különböző üzemmódot támog
 | 🔴 **Normál** | Piros | Alapértelmezett Zwift vezérlés (navigáció, nézetek, akciók) |
 | 🔵 **Verseny/Edzés** | Kék | Zwift versenyhez és edzéshez optimalizált gombok |
 | 🟢 **Média vezérlő** | Zöld | Médialejátszó vezérlés (play/pause, hangerő, szám váltás) |
+
+### Cél eszköz üzemmódonként
+
+Ha az eszköz egyszerre két géphez csatlakozik, üzemmódonként megadható, hogy a
+gombnyomások melyikre menjenek. A gyári beállítás:
+
+| Üzemmód | Cél eszköz |
+|---------|-----------|
+| 🔴 Normál (Zwift) | Csak a Windows PC |
+| 🔵 Verseny / Edzés | Csak a Windows PC |
+| 🟢 Média vezérlő | Mindkét eszköz |
+
+Így a Zwift vezérlése a PC-t érinti, a zene/hangerő viszont a telefont is.
+A beállítás a [konfiguráló programban](tools/README.md) módosítható.
 
 ### Üzemmód váltás
 
@@ -119,7 +134,8 @@ python zwift_config_gui.py
 ```
 
 1. Csatlakoztasd az eszközt USB-n, válaszd ki a soros portot, **Csatlakozás**.
-2. Kattints a táblázat bármelyik cellájára, és **nyomd le a kívánt
+2. Üzemmódonként állítsd be a **cél eszközt** (PC / telefon / mindkettő), és
+   kattints a táblázat bármelyik cellájára, majd **nyomd le a kívánt
    billentyű-kombinációt** – a program felveszi (a módosítók pipákkal is
    állíthatók, illetve média billentyű, üzemmód váltás vagy nézetváltás is
    választható).
@@ -182,8 +198,10 @@ A többi könyvtár a board csomaggal együtt települ.
 2. **BLE párosítás** – Az eszköz `SEEED_ZWIFT` néven hirdeti magát. Keresd meg a Bluetooth beállításokban és párosítsd
 3. **Gombok használata** – Használd a gombokat a Zwift (vagy más alkalmazás) vezérléséhez
 4. **Üzemmód váltás** – Gomb 4 dupla kattintással válthatsz az üzemmódok között
-5. **Alvó mód** – 15 perc inaktivitás után automatikusan alvó módba lép
-6. **Ébresztés** – Nyomd meg a Gomb 2-t (D2 pin) az alvó módból való felébresztéshez
+5. **Második eszköz** – Párosítsd a telefont is; a konfiguráló program
+   „Eszközök hozzárendelése…" ablakában add meg, melyik a PC és melyik a telefon
+6. **Alvó mód** – 15 perc inaktivitás után automatikusan alvó módba lép
+7. **Ébresztés** – Nyomd meg a Gomb 2-t (D2 pin) az alvó módból való felébresztéshez
 
 ---
 

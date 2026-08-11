@@ -21,9 +21,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from hid_tables import (  # noqa: E402
     ACT_CONSUMER, ACT_KEY, ACT_MODE_NEXT, ACT_NONE, ACT_VIEW_CYCLE,
-    CONSUMER_KEYS, EVENT_KEYS, EVENT_NAMES, EV_LONG, KEY_CHOICES, KEY_NAMES,
-    MODE_NAMES, MODIFIERS, MODIFIER_KEYSYMS, consumer_label, key_label,
-    keysym_to_hid,
+    CONSUMER_KEYS, DEFAULT_TARGETS, EVENT_KEYS, EVENT_NAMES, EV_LONG,
+    KEY_CHOICES, KEY_NAMES, MODE_NAMES, MODIFIERS, MODIFIER_KEYSYMS,
+    SLOT_NAMES, TARGET_ALL, TARGET_CHOICES, consumer_label, key_label,
+    keysym_to_hid, target_label,
 )
 
 try:
@@ -38,7 +39,8 @@ NUM_MODES = 3
 NUM_BUTTONS = 5
 NUM_EVENTS = 3
 FILE_FORMAT = "zwift-buttons-keymap"
-FILE_VERSION = 1
+FILE_VERSION = 2
+NUM_SLOTS = 2
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +92,10 @@ class Action(object):
             int(d.get("repeat", 0)),
             int(d.get("repeat_ms", 60)),
         )
+
+
+def default_targets():
+    return list(DEFAULT_TARGETS)
 
 
 def empty_keymap():
@@ -192,9 +198,11 @@ class DeviceLink(object):
 
     # -- magas szint --
 
-    def read_keymap(self, timeout=6.0):
+    def read_config(self, timeout=6.0):
+        """A teljes konfiguráció beolvasása: (keymap, célpontok)."""
         self._write("GET")
         keymap = empty_keymap()
+        targets = default_targets()
         seen = 0
         deadline = time.time() + timeout
         while time.time() < deadline:
@@ -204,9 +212,19 @@ class DeviceLink(object):
             if line == "END":
                 if seen != NUM_MODES * NUM_BUTTONS * NUM_EVENTS:
                     raise DeviceError("Hiányos kiosztás érkezett ({} sor).".format(seen))
-                return keymap
+                return keymap, targets
             if line.startswith("ERR"):
                 raise DeviceError("Az eszköz hibát jelzett: {}".format(line))
+            if line.startswith("TARGET "):
+                parts = line.split()
+                if len(parts) == 3:
+                    try:
+                        m, mask = int(parts[1]), int(parts[2])
+                    except ValueError:
+                        continue
+                    if 0 <= m < NUM_MODES:
+                        targets[m] = mask
+                continue
             if not line.startswith("MAP "):
                 continue
             parts = line.split()
@@ -222,8 +240,8 @@ class DeviceLink(object):
             seen += 1
         raise DeviceError("Időtúllépés a kiosztás beolvasása közben.")
 
-    def write_keymap(self, keymap, progress=None):
-        total = NUM_MODES * NUM_BUTTONS * NUM_EVENTS
+    def write_config(self, keymap, targets, progress=None):
+        total = NUM_MODES * NUM_BUTTONS * NUM_EVENTS + NUM_MODES
         done = 0
         for m in range(NUM_MODES):
             for b in range(NUM_BUTTONS):
@@ -235,6 +253,51 @@ class DeviceLink(object):
                     done += 1
                     if progress is not None:
                         progress(done, total)
+        for m in range(NUM_MODES):
+            self.command("SETTARGET {} {}".format(m, targets[m]))
+            done += 1
+            if progress is not None:
+                progress(done, total)
+
+    def read_peers(self, timeout=4.0):
+        """(fiókok, élő kapcsolatok) beolvasása.
+
+        fiókok: [{'valid': bool, 'addr': str}, ...]
+        kapcsolatok: [{'handle': int, 'addr': str, 'slot': int}, ...]
+        """
+        self._write("PEERS")
+        slots = [{"valid": False, "addr": "-"} for _ in range(NUM_SLOTS)]
+        conns = []
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            line = self._readline()
+            if not line:
+                continue
+            if line == "END":
+                return slots, conns
+            if line.startswith("ERR"):
+                raise DeviceError("Az eszköz hibát jelzett: {}".format(line))
+            parts = line.split()
+            if line.startswith("SLOT ") and len(parts) == 4:
+                try:
+                    idx, valid = int(parts[1]), int(parts[2])
+                except ValueError:
+                    continue
+                if 0 <= idx < NUM_SLOTS:
+                    slots[idx] = {"valid": bool(valid), "addr": parts[3]}
+            elif line.startswith("CONN ") and len(parts) == 4:
+                try:
+                    conns.append({"handle": int(parts[1]), "addr": parts[2],
+                                  "slot": int(parts[3])})
+                except ValueError:
+                    continue
+        raise DeviceError("Időtúllépés az eszközlista beolvasása közben.")
+
+    def assign_slot(self, slot, conn_handle):
+        return self.command("ASSIGN {} {}".format(slot, conn_handle), timeout=3.0)
+
+    def clear_slot(self, slot):
+        return self.command("CLEARSLOT {}".format(slot), timeout=3.0)
 
     def save_to_flash(self):
         return self.command("SAVE", timeout=5.0)
@@ -548,6 +611,119 @@ class ActionDialog(tk.Toplevel):
 
 
 # ---------------------------------------------------------------------------
+# Eszköz-hozzárendelés (melyik BLE eszköz a PC és melyik a telefon)
+# ---------------------------------------------------------------------------
+
+class PeersDialog(tk.Toplevel):
+    """A csatlakozott BLE eszközök hozzárendelése a PC / telefon fiókokhoz.
+
+    A kapcsolat-azonosítók csatlakozási sorrendben keletkeznek, ezért az eszköz
+    a BLE cím alapján jegyzi meg, melyik a PC és melyik a telefon.
+    """
+
+    def __init__(self, master, link):
+        tk.Toplevel.__init__(self, master)
+        self.title("Eszközök hozzárendelése")
+        self.resizable(False, False)
+        self.transient(master)
+        self.link = link
+        self.slot_labels = []
+        self.conn_frame = None
+
+        outer = ttk.Frame(self, padding=10)
+        outer.pack(fill="both", expand=True)
+
+        ttk.Label(outer, wraplength=520, text=(
+            "Párosítsd az eszközt mindkét géppel, majd itt add meg, melyik "
+            "melyik. A hozzárendelés a BLE cím alapján történik, így "
+            "újracsatlakozás után is megmarad.")).pack(anchor="w", pady=(0, 10))
+
+        slot_box = ttk.LabelFrame(outer, text="Jelenlegi hozzárendelés", padding=8)
+        slot_box.pack(fill="x")
+        for slot in range(NUM_SLOTS):
+            row = ttk.Frame(slot_box)
+            row.pack(fill="x", pady=2)
+            ttk.Label(row, text=SLOT_NAMES[slot] + ":", width=14).pack(side="left")
+            lbl = ttk.Label(row, text="—", font=("TkFixedFont", 9))
+            lbl.pack(side="left")
+            ttk.Button(row, text="Törlés", width=8,
+                       command=lambda s=slot: self._clear(s)).pack(side="right")
+            self.slot_labels.append(lbl)
+
+        self.conn_box = ttk.LabelFrame(outer, text="Most csatlakozott eszközök", padding=8)
+        self.conn_box.pack(fill="x", pady=(10, 0))
+
+        buttons = ttk.Frame(outer)
+        buttons.pack(fill="x", pady=(10, 0))
+        ttk.Button(buttons, text="Bezárás", command=self._close).pack(side="right")
+        ttk.Button(buttons, text="Frissítés", command=self.refresh).pack(side="right", padx=(0, 6))
+
+        self.status = ttk.Label(outer, text="", wraplength=520, foreground="#555555")
+        self.status.pack(anchor="w", pady=(8, 0))
+
+        self.protocol("WM_DELETE_WINDOW", self._close)
+        self.bind("<Escape>", lambda e: self._close())
+        self.refresh()
+        self.update_idletasks()
+        self.grab_set()
+
+    def refresh(self):
+        try:
+            slots, conns = self.link.read_peers()
+        except DeviceError as exc:
+            self.status.configure(text=str(exc), foreground="#a03030")
+            return
+
+        for slot in range(NUM_SLOTS):
+            info = slots[slot]
+            self.slot_labels[slot].configure(
+                text=info["addr"] if info["valid"] else "— (nincs hozzárendelve)")
+
+        if self.conn_frame is not None:
+            self.conn_frame.destroy()
+        self.conn_frame = ttk.Frame(self.conn_box)
+        self.conn_frame.pack(fill="x")
+
+        if not conns:
+            ttk.Label(self.conn_frame,
+                      text="Jelenleg egy eszköz sincs csatlakozva BLE-n.").pack(anchor="w")
+        for conn in conns:
+            row = ttk.Frame(self.conn_frame)
+            row.pack(fill="x", pady=2)
+            current = SLOT_NAMES[conn["slot"]] if 0 <= conn["slot"] < NUM_SLOTS else "nincs"
+            ttk.Label(row, text=conn["addr"], font=("TkFixedFont", 9), width=20).pack(side="left")
+            ttk.Label(row, text="({})".format(current), width=14).pack(side="left")
+            for slot in range(NUM_SLOTS):
+                ttk.Button(row, text="Ez a " + SLOT_NAMES[slot], width=16,
+                           command=lambda s=slot, h=conn["handle"]: self._assign(s, h)
+                           ).pack(side="left", padx=(4, 0))
+
+        self.status.configure(
+            text="A hozzárendelés azonnal érvényes; a megőrzéshez a főablakban "
+                 "mentsd az eszköz memóriájába.", foreground="#555555")
+
+    def _assign(self, slot, handle):
+        try:
+            self.link.assign_slot(slot, handle)
+        except DeviceError as exc:
+            self.status.configure(text=str(exc), foreground="#a03030")
+            return
+        self.refresh()
+
+    def _clear(self, slot):
+        try:
+            self.link.clear_slot(slot)
+        except DeviceError as exc:
+            self.status.configure(text=str(exc), foreground="#a03030")
+            return
+        self.refresh()
+
+    def _close(self):
+        self.grab_release()
+        self.destroy()
+
+
+# ---------------------------------------------------------------------------
 # Főablak
 # ---------------------------------------------------------------------------
 
@@ -560,7 +736,9 @@ class App(ttk.Frame):
 
         self.link = DeviceLink()
         self.keymap = empty_keymap()
+        self.targets = default_targets()
         self.cells = {}
+        self.target_vars = {}
         self.dirty = False
 
         self._build()
@@ -601,6 +779,8 @@ class App(ttk.Frame):
                    command=self.on_save_device).pack(side="left", padx=(6, 0))
         ttk.Button(bottom, text="Gyári alapértelmezés",
                    command=self.on_device_defaults).pack(side="left", padx=(6, 0))
+        ttk.Button(bottom, text="Eszközök hozzárendelése…",
+                   command=self.on_peers).pack(side="left", padx=(16, 0))
 
         ttk.Button(bottom, text="Megnyitás fájlból…",
                    command=self.on_open_file).pack(side="right")
@@ -619,27 +799,51 @@ class App(ttk.Frame):
         for col in range(1, NUM_EVENTS + 1):
             frame.columnconfigure(col, weight=1, uniform="ev")
 
+        # Üzemmódonkénti cél-eszköz
+        target_box = ttk.LabelFrame(frame, text="Ebben az üzemmódban a parancsok célja",
+                                    padding=8)
+        target_box.grid(row=0, column=0, columnspan=NUM_EVENTS + 1,
+                        sticky="we", pady=(0, 10))
+        var = tk.IntVar(value=self.targets[mode])
+        self.target_vars[mode] = var
+        for i, (value, text) in enumerate(TARGET_CHOICES):
+            ttk.Radiobutton(target_box, text=text, value=value, variable=var,
+                            command=lambda m=mode: self._on_target_changed(m)
+                            ).grid(row=0, column=i, sticky="w", padx=(0, 18))
+
         ttk.Label(frame, text="Gomb", font=("TkDefaultFont", 9, "bold")).grid(
-            row=0, column=0, padx=4, pady=(0, 6), sticky="w")
+            row=1, column=0, padx=4, pady=(0, 6), sticky="w")
         for e in range(NUM_EVENTS):
             ttk.Label(frame, text=EVENT_NAMES[e], font=("TkDefaultFont", 9, "bold")).grid(
-                row=0, column=e + 1, padx=4, pady=(0, 6))
+                row=1, column=e + 1, padx=4, pady=(0, 6))
 
         for b in range(NUM_BUTTONS):
             ttk.Label(frame, text="Gomb {}".format(b + 1)).grid(
-                row=b + 1, column=0, padx=4, pady=3, sticky="w")
+                row=b + 2, column=0, padx=4, pady=3, sticky="w")
             for e in range(NUM_EVENTS):
                 btn = ttk.Button(frame, text="—", width=26,
                                  command=lambda m=mode, bb=b, ee=e: self.edit_cell(m, bb, ee))
-                btn.grid(row=b + 1, column=e + 1, padx=4, pady=3, sticky="we")
+                btn.grid(row=b + 2, column=e + 1, padx=4, pady=3, sticky="we")
                 self.cells[(mode, b, e)] = btn
         return frame
+
+    def _on_target_changed(self, mode):
+        self.targets[mode] = self.target_vars[mode].get()
+        self.dirty = True
+        self._set_status("{}: {} – a „Küldés az eszközre” gombbal lép érvénybe.".format(
+            MODE_NAMES[mode], target_label(self.targets[mode])))
+
+    def _refresh_targets(self):
+        for mode in range(NUM_MODES):
+            if mode in self.target_vars:
+                self.target_vars[mode].set(self.targets[mode])
 
     # -- cellák --
 
     def _refresh_all_cells(self):
         for (m, b, e), btn in self.cells.items():
             btn.configure(text=self.keymap[m][b][e].label())
+        self._refresh_targets()
 
     def edit_cell(self, mode, button, event):
         title = "{} – Gomb {} – {}".format(MODE_NAMES[mode], button + 1, EVENT_NAMES[event])
@@ -718,7 +922,7 @@ class App(ttk.Frame):
             return
         try:
             self._busy(True)
-            self.keymap = self.link.read_keymap()
+            self.keymap, self.targets = self.link.read_config()
         except DeviceError as exc:
             messagebox.showerror("Olvasási hiba", str(exc))
             return
@@ -733,8 +937,8 @@ class App(ttk.Frame):
             return
         try:
             self._busy(True)
-            self.link.write_keymap(
-                self.keymap,
+            self.link.write_config(
+                self.keymap, self.targets,
                 progress=lambda d, t: self._set_status(
                     "Küldés… {}/{}".format(d, t), update=True))
         except DeviceError as exc:
@@ -770,7 +974,7 @@ class App(ttk.Frame):
         try:
             self._busy(True)
             self.link.load_defaults()
-            self.keymap = self.link.read_keymap()
+            self.keymap, self.targets = self.link.read_config()
         except DeviceError as exc:
             messagebox.showerror("Hiba", str(exc))
             return
@@ -779,6 +983,14 @@ class App(ttk.Frame):
         self._refresh_all_cells()
         self.dirty = False
         self._set_status("Gyári kiosztás betöltve az eszközre (még nincs elmentve).")
+
+    def on_peers(self):
+        if not self._require_link():
+            return
+        dialog = PeersDialog(self.master, self.link)
+        self.master.wait_window(dialog)
+        self._set_status("Eszköz-hozzárendelés lezárva. A megőrzéshez mentsd "
+                         "az eszköz memóriájába.")
 
     # -- fájl műveletek --
 
@@ -794,6 +1006,7 @@ class App(ttk.Frame):
             "modes": [
                 {
                     "name": MODE_NAMES[m],
+                    "target": self.targets[m],
                     "buttons": [
                         {EVENT_KEYS[e]: self.keymap[m][b][e].to_dict()
                          for e in range(NUM_EVENTS)}
@@ -829,7 +1042,13 @@ class App(ttk.Frame):
             return
         try:
             keymap = empty_keymap()
+            targets = default_targets()
             for m, mode in enumerate(data["modes"][:NUM_MODES]):
+                # A régi (1-es verziójú) fájlokban még nincs célpont; ilyenkor
+                # marad a gyári beállítás.
+                mask = int(mode.get("target", targets[m]))
+                if 1 <= mask <= TARGET_ALL:
+                    targets[m] = mask
                 for b, button in enumerate(mode["buttons"][:NUM_BUTTONS]):
                     for e in range(NUM_EVENTS):
                         entry = button.get(EVENT_KEYS[e])
@@ -839,6 +1058,7 @@ class App(ttk.Frame):
             messagebox.showerror("Hibás fájl", "A fájl tartalma hibás: {}".format(exc))
             return
         self.keymap = keymap
+        self.targets = targets
         self._refresh_all_cells()
         self.dirty = True
         self._set_status("Betöltve: {}".format(path))
@@ -853,6 +1073,9 @@ class App(ttk.Frame):
             with open(path, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
             for m, mode in enumerate(data["modes"][:NUM_MODES]):
+                mask = int(mode.get("target", self.targets[m]))
+                if 1 <= mask <= TARGET_ALL:
+                    self.targets[m] = mask
                 for b, button in enumerate(mode["buttons"][:NUM_BUTTONS]):
                     for e in range(NUM_EVENTS):
                         entry = button.get(EVENT_KEYS[e])

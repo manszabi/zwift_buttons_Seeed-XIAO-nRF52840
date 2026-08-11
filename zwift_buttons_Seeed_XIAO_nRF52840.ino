@@ -46,6 +46,15 @@ int nezet = 0;
 bool duringLongpress = false;
 String taroltUzemmod;
 
+// Élő BLE kapcsolatok. A csatlakozás sorrendjében töltődik, a hozzárendelés a
+// PC/telefon fiókokhoz a peer BLE címe alapján történik (lásd slotOfConn).
+static uint16_t connHandles[ZW_MAX_CONNECTIONS];
+
+// Melyik kapcsolatokra ment ki a legutóbbi lenyomás. A felengedést pontosan
+// ezekre kell elküldeni, nem az összes élő kapcsolatra.
+static uint16_t pressedTargets[ZW_MAX_CONNECTIONS];
+static uint8_t pressedTargetCount = 0;
+
 // Nyomva tartás közbeni ismétlés állapota
 static int8_t repeatButton = -1;       // melyik gomb ismétel éppen (-1 = egyik sem)
 static bool repeatDue = false;         // az első ismétlés azonnal menjen ki
@@ -188,8 +197,12 @@ void setup() {
   button5.attachLongPressStop(longPressStop5);
   button5.attachDuringLongPress(longPress5);
 
+  for (uint8_t i = 0; i < ZW_MAX_CONNECTIONS; i++) {
+    connHandles[i] = BLE_CONN_HANDLE_INVALID;
+  }
+
   Bluefruit.configPrphConn(92, BLE_GAP_EVENT_LENGTH_MIN, 16, 16);
-  Bluefruit.begin(1, 0);
+  Bluefruit.begin(ZW_MAX_CONNECTIONS, 0);
   Bluefruit.setTxPower(4);
   Bluefruit.autoConnLed(false);
   Bluefruit.setName("SEEED_ZWIFT");
@@ -198,6 +211,7 @@ void setup() {
   bledis.begin();
   blehid.begin();
   Bluefruit.Periph.setConnInterval(9, 12);
+  Bluefruit.Periph.setConnectCallback(connect_callback);
   Bluefruit.Periph.setDisconnectCallback(disconnect_callback);
   startAdv();
 }
@@ -234,14 +248,10 @@ void loop() {
     unsigned long currentMillis = millis();
 
     if (!duringLongpress && keyPressMillis > 0 && (currentMillis - keyPressMillis >= keyReleaseDelay)) {
-      if (hasKeyPressed) {
-        blehid.keyRelease();
-        hasKeyPressed = false;
-      }
-      if (hasConsumerKeyPressed) {
-        blehid.consumerKeyRelease();
-        hasConsumerKeyPressed = false;
-      }
+      releasePressedKeys(hasKeyPressed, hasConsumerKeyPressed);
+      if (hasKeyPressed) hasKeyPressed = false;
+      if (hasConsumerKeyPressed) hasConsumerKeyPressed = false;
+      pressedTargetCount = 0;
       keyPressMillis = 0;
     }
   }
@@ -271,14 +281,47 @@ static void disconnectBle() {
   }
 }
 
+void connect_callback(uint16_t conn_handle) {
+  uint8_t used = 0;
+  for (uint8_t i = 0; i < ZW_MAX_CONNECTIONS; i++) {
+    if (connHandles[i] == BLE_CONN_HANDLE_INVALID) {
+      connHandles[i] = conn_handle;
+      break;
+    }
+  }
+  for (uint8_t i = 0; i < ZW_MAX_CONNECTIONS; i++) {
+    if (connHandles[i] != BLE_CONN_HANDLE_INVALID) used++;
+  }
+
+  Serial.print("BLE csatlakozott, conn_hdl=");
+  Serial.print(conn_handle);
+  Serial.print(" (");
+  Serial.print(used);
+  Serial.print("/");
+  Serial.print(ZW_MAX_CONNECTIONS);
+  Serial.println(")");
+
+  // Amíg van szabad hely, hirdessük magunkat tovább, hogy a másik eszköz is
+  // be tudjon csatlakozni. A SoftDevice a csatlakozáskor leállítja a hirdetést.
+  if (used < ZW_MAX_CONNECTIONS) {
+    Bluefruit.Advertising.start(0);
+  }
+}
+
 void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
-  (void)conn_handle;
   (void)reason;
+  for (uint8_t i = 0; i < ZW_MAX_CONNECTIONS; i++) {
+    if (connHandles[i] == conn_handle) connHandles[i] = BLE_CONN_HANDLE_INVALID;
+  }
+  Serial.print("BLE bontva, conn_hdl=");
+  Serial.println(conn_handle);
+
   hasKeyPressed = false;
   hasConsumerKeyPressed = false;
   duringLongpress = false;
   repeatButton = -1;
   keyPressMillis = 0;
+  pressedTargetCount = 0;
 }
 
 // Biztonságos fájlírás: előbb ideiglenes fájlba írunk, és csak hibátlan kiírás
@@ -388,13 +431,27 @@ static void setAction(uint8_t mode, uint8_t btn, uint8_t evt,
 
 // A gyári kiosztás: ugyanaz, ami korábban be volt drótozva a kódba.
 void loadDefaultKeymap() {
+  // A cél-eszköz hozzárendelés (melyik a PC, melyik a telefon) túléli a gyári
+  // visszaállítást: az a fizikai eszközökről szól, nem a gomb-kiosztásról.
+  PeerSlot savedPeers[ZW_NUM_SLOTS];
+  memcpy(savedPeers, keymap.peers, sizeof(savedPeers));
+
   memset(&keymap, 0, sizeof(keymap));
+  memcpy(keymap.peers, savedPeers, sizeof(savedPeers));
   keymap.magic = ZW_KEYMAP_MAGIC;
   keymap.version = ZW_KEYMAP_VERSION;
   keymap.entrySize = sizeof(KeyAction);
   keymap.modes = ZW_NUM_MODES;
   keymap.buttons = ZW_NUM_BUTTONS;
   keymap.events = ZW_NUM_EVENTS;
+  keymap.slots = ZW_NUM_SLOTS;
+
+  // Cél-eszközök üzemmódonként: a Zwift vezérlés a PC-re megy, a média
+  // vezérlés mindkét eszközre. A fiók-hozzárendelés (melyik a PC, melyik a
+  // telefon) párosítás után a konfiguráló programban állítható be.
+  keymap.modeTarget[0] = ZW_TARGET_PC;   // Normál (Zwift)
+  keymap.modeTarget[1] = ZW_TARGET_PC;   // Verseny / edzés
+  keymap.modeTarget[2] = ZW_TARGET_ALL;  // Média vezérlő
 
   const uint8_t MOD_GUI_ALT = KEYBOARD_MODIFIER_LEFTGUI | KEYBOARD_MODIFIER_LEFTALT;
 
@@ -494,7 +551,7 @@ bool loadKeymap() {
   if (tmp.magic != ZW_KEYMAP_MAGIC || tmp.version != ZW_KEYMAP_VERSION
       || tmp.entrySize != sizeof(KeyAction)
       || tmp.modes != ZW_NUM_MODES || tmp.buttons != ZW_NUM_BUTTONS
-      || tmp.events != ZW_NUM_EVENTS) {
+      || tmp.events != ZW_NUM_EVENTS || tmp.slots != ZW_NUM_SLOTS) {
     Serial.println("keymap: ismeretlen formatum");
     return false;
   }
@@ -515,6 +572,7 @@ bool saveKeymap() {
   keymap.modes = ZW_NUM_MODES;
   keymap.buttons = ZW_NUM_BUTTONS;
   keymap.events = ZW_NUM_EVENTS;
+  keymap.slots = ZW_NUM_SLOTS;
   keymap.reserved = 0;
   keymap.crc = keymapCrc(keymap);
 
@@ -530,24 +588,89 @@ static const KeyAction& currentAction(uint8_t btn, uint8_t evt) {
   return keymap.map[(uint8_t)jelenlegiUzemmod][btn][evt];
 }
 
+// Egy élő kapcsolat melyik cél-fiókba tartozik? -1 = nincs hozzárendelve.
+static int8_t slotOfConn(uint16_t conn_hdl) {
+  BLEConnection* conn = Bluefruit.Connection(conn_hdl);
+  if (conn == NULL) return -1;
+  ble_gap_addr_t peer = conn->getPeerAddr();
+  for (uint8_t s = 0; s < ZW_NUM_SLOTS; s++) {
+    if (!keymap.peers[s].valid) continue;
+    if (memcmp(keymap.peers[s].addr, peer.addr, 6) == 0) return (int8_t)s;
+  }
+  return -1;
+}
+
+static bool anySlotAssigned() {
+  for (uint8_t s = 0; s < ZW_NUM_SLOTS; s++) {
+    if (keymap.peers[s].valid) return true;
+  }
+  return false;
+}
+
+// Összegyűjti azokat az élő kapcsolatokat, amelyekre a maszk szerint küldeni
+// kell. Ha még egyetlen fiók sincs hozzárendelve, minden kapcsolatra küld —
+// így az eszköz párosítás után azonnal használható, hozzárendelés nélkül is.
+static uint8_t collectTargets(uint8_t mask, uint16_t* out) {
+  uint8_t n = 0;
+  bool assigned = anySlotAssigned();
+  for (uint8_t i = 0; i < ZW_MAX_CONNECTIONS; i++) {
+    uint16_t h = connHandles[i];
+    if (h == BLE_CONN_HANDLE_INVALID) continue;
+    if (!Bluefruit.connected(h)) continue;
+    if (assigned) {
+      int8_t slot = slotOfConn(h);
+      if (slot < 0) continue;                    // ismeretlen eszköz
+      if (!(mask & (1 << (uint8_t)slot))) continue;  // nem ez a célpont
+    }
+    out[n++] = h;
+  }
+  return n;
+}
+
+static uint8_t currentTargetMask() {
+  return keymap.modeTarget[(uint8_t)jelenlegiUzemmod];
+}
+
 static void sendKeyboard(uint8_t modifier, uint8_t keycode) {
-  if (!Bluefruit.connected()) return;
   if (hasKeyPressed || hasConsumerKeyPressed) return;
+  uint16_t targets[ZW_MAX_CONNECTIONS];
+  uint8_t n = collectTargets(currentTargetMask(), targets);
+  if (n == 0) return;
+
   uint8_t keycodes[6] = { keycode, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
-  blehid.keyboardReport(modifier, keycodes);
+  for (uint8_t i = 0; i < n; i++) {
+    blehid.keyboardReport(targets[i], modifier, keycodes);
+    pressedTargets[i] = targets[i];
+  }
+  pressedTargetCount = n;
   hasKeyPressed = true;
   delay(5);
 }
 
 static void sendConsumer(uint16_t usage) {
-  if (!Bluefruit.connected()) return;
   if (hasKeyPressed || hasConsumerKeyPressed) return;
-  // FIGYELEM: a consumerKeyPress kétparaméteres alakja (conn_hdl, usage), nem
-  // (modosito, usage) — az elsőt véletlenül használva a 0 kapcsolat-azonosítót
-  // jelentene. Itt az egyparaméteres, aktuális kapcsolatra küldő alak kell.
-  blehid.consumerKeyPress(usage);
+  uint16_t targets[ZW_MAX_CONNECTIONS];
+  uint8_t n = collectTargets(currentTargetMask(), targets);
+  if (n == 0) return;
+
+  for (uint8_t i = 0; i < n; i++) {
+    blehid.consumerKeyPress(targets[i], usage);
+    pressedTargets[i] = targets[i];
+  }
+  pressedTargetCount = n;
   hasConsumerKeyPressed = true;
   delay(5);
+}
+
+// A lenyomás pontosan azokra a kapcsolatokra volt kiküldve, amiket a
+// pressedTargets tárol — a felengedést is ezekre kell elküldeni.
+void releasePressedKeys(bool keyboard, bool consumer) {
+  for (uint8_t i = 0; i < pressedTargetCount; i++) {
+    uint16_t h = pressedTargets[i];
+    if (!Bluefruit.connected(h)) continue;
+    if (keyboard) blehid.keyRelease(h);
+    if (consumer) blehid.consumerKeyRelease(h);
+  }
 }
 
 // Egyszeri művelet (rövid / dupla / nem ismétlődő hosszú nyomás).
@@ -587,15 +710,22 @@ static void fireAction(uint8_t btn, uint8_t evt) {
 // Nyomva tartás közbeni ismétlés: a billentyű nyomva marad, a felengedést
 // a longPressStop bízza a főciklusra.
 static void sendRepeat(const KeyAction& a) {
-  if (!Bluefruit.connected()) return;
-  if (a.type == ACT_KEY) {
-    uint8_t keycodes[6] = { (uint8_t)a.code, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
-    blehid.keyboardReport(a.modifier, keycodes);
-  } else if (a.type == ACT_CONSUMER) {
-    blehid.consumerKeyPress(a.code);  // lásd sendConsumer(): itt nincs conn_hdl
-  } else {
-    return;
+  if (a.type != ACT_KEY && a.type != ACT_CONSUMER) return;
+
+  uint16_t targets[ZW_MAX_CONNECTIONS];
+  uint8_t n = collectTargets(currentTargetMask(), targets);
+  if (n == 0) return;
+
+  for (uint8_t i = 0; i < n; i++) {
+    if (a.type == ACT_KEY) {
+      uint8_t keycodes[6] = { (uint8_t)a.code, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
+      blehid.keyboardReport(targets[i], a.modifier, keycodes);
+    } else {
+      blehid.consumerKeyPress(targets[i], a.code);
+    }
+    pressedTargets[i] = targets[i];
   }
+  pressedTargetCount = n;
   hasKeyPressed = false;
   hasConsumerKeyPressed = false;
   duringLongpress = true;
@@ -711,6 +841,14 @@ void longPressStop5() { onLongStop(4); }
 //   DEFAULTS                                    -> OK DEFAULTS
 //   MODE [n]                                    -> OK MODE <n>
 //   DBG <0|1>                                   -> OK DBG <n>
+//
+//   GET valasza a MAP sorok utan uzemmodonkent egy TARGET <m> <maszk> sort is
+//   tartalmaz (maszk: 1 = PC, 2 = telefon, 3 = mindketto).
+//
+//   SETTARGET <m> <maszk>                       -> OK
+//   PEERS                                       -> SLOT/CONN sorok + END
+//   ASSIGN <slot> <conn_hdl>                    -> OK
+//   CLEARSLOT <slot>                            -> OK
 // ---------------------------------------------------------------------------
 
 static void printMapLine(uint8_t m, uint8_t b, uint8_t e) {
@@ -731,7 +869,114 @@ static void cmdGet() {
       }
     }
   }
+  for (uint8_t m = 0; m < ZW_NUM_MODES; m++) {
+    char line[32];
+    snprintf(line, sizeof(line), "TARGET %u %u", (unsigned)m, (unsigned)keymap.modeTarget[m]);
+    Serial.println(line);
+  }
   Serial.println("END");
+}
+
+// A BLE címet a szokásos, megjelenítési sorrendben írjuk ki (MSB elöl), mert a
+// telefon és a Windows is így mutatja.
+static void formatAddr(const uint8_t* addr, char* out, size_t outLen) {
+  snprintf(out, outLen, "%02X:%02X:%02X:%02X:%02X:%02X",
+           addr[5], addr[4], addr[3], addr[2], addr[1], addr[0]);
+}
+
+static void cmdPeers() {
+  char addrStr[20];
+  for (uint8_t s = 0; s < ZW_NUM_SLOTS; s++) {
+    char line[64];
+    if (keymap.peers[s].valid) {
+      formatAddr(keymap.peers[s].addr, addrStr, sizeof(addrStr));
+    } else {
+      strcpy(addrStr, "-");
+    }
+    snprintf(line, sizeof(line), "SLOT %u %u %s",
+             (unsigned)s, (unsigned)keymap.peers[s].valid, addrStr);
+    Serial.println(line);
+  }
+  for (uint8_t i = 0; i < ZW_MAX_CONNECTIONS; i++) {
+    uint16_t h = connHandles[i];
+    if (h == BLE_CONN_HANDLE_INVALID || !Bluefruit.connected(h)) continue;
+    BLEConnection* conn = Bluefruit.Connection(h);
+    if (conn == NULL) continue;
+    ble_gap_addr_t peer = conn->getPeerAddr();
+    formatAddr(peer.addr, addrStr, sizeof(addrStr));
+    char line[64];
+    snprintf(line, sizeof(line), "CONN %u %s %d",
+             (unsigned)h, addrStr, (int)slotOfConn(h));
+    Serial.println(line);
+  }
+  Serial.println("END");
+}
+
+static void cmdSetTarget(const char* args) {
+  unsigned m, mask;
+  if (sscanf(args, "%u %u", &m, &mask) != 2) {
+    Serial.println("ERR ARGS");
+    return;
+  }
+  if (m >= ZW_NUM_MODES) {
+    Serial.println("ERR RANGE");
+    return;
+  }
+  if (mask == 0 || mask > ZW_TARGET_ALL) {
+    Serial.println("ERR VALUE");
+    return;
+  }
+  keymap.modeTarget[m] = (uint8_t)mask;
+  Serial.println("OK");
+}
+
+// ASSIGN <slot> <conn_hdl>: az adott élő kapcsolat BLE címét a fiókhoz köti.
+static void cmdAssign(const char* args) {
+  unsigned s, h;
+  if (sscanf(args, "%u %u", &s, &h) != 2) {
+    Serial.println("ERR ARGS");
+    return;
+  }
+  if (s >= ZW_NUM_SLOTS) {
+    Serial.println("ERR RANGE");
+    return;
+  }
+  if (!Bluefruit.connected((uint16_t)h)) {
+    Serial.println("ERR NOTCONNECTED");
+    return;
+  }
+  BLEConnection* conn = Bluefruit.Connection((uint16_t)h);
+  if (conn == NULL) {
+    Serial.println("ERR NOTCONNECTED");
+    return;
+  }
+  ble_gap_addr_t peer = conn->getPeerAddr();
+
+  // Ugyanaz az eszköz ne kerüljön két fiókba egyszerre.
+  for (uint8_t i = 0; i < ZW_NUM_SLOTS; i++) {
+    if (i != s && keymap.peers[i].valid
+        && memcmp(keymap.peers[i].addr, peer.addr, 6) == 0) {
+      keymap.peers[i].valid = 0;
+    }
+  }
+  keymap.peers[s].valid = 1;
+  keymap.peers[s].addrType = peer.addr_type;
+  memcpy(keymap.peers[s].addr, peer.addr, 6);
+  Serial.println("OK");
+}
+
+static void cmdClearSlot(const char* args) {
+  unsigned s;
+  if (sscanf(args, "%u", &s) != 1) {
+    Serial.println("ERR ARGS");
+    return;
+  }
+  if (s >= ZW_NUM_SLOTS) {
+    Serial.println("ERR RANGE");
+    return;
+  }
+  memset(&keymap.peers[s], 0, sizeof(PeerSlot));
+  Serial.println("OK");
 }
 
 static void cmdSet(const char* args) {
@@ -788,16 +1033,25 @@ static void processCommand(char* cmd) {
   if (cmd[0] == 0) {
     return;
   } else if (strcmp(cmd, "PING") == 0) {
-    char line[80];
+    char line[112];
     snprintf(line, sizeof(line),
-             "OK ZWIFT_BUTTONS PROTO=%u MODES=%u BUTTONS=%u EVENTS=%u",
+             "OK ZWIFT_BUTTONS PROTO=%u MODES=%u BUTTONS=%u EVENTS=%u SLOTS=%u CONNS=%u",
              (unsigned)ZW_PROTO_VERSION, (unsigned)ZW_NUM_MODES,
-             (unsigned)ZW_NUM_BUTTONS, (unsigned)ZW_NUM_EVENTS);
+             (unsigned)ZW_NUM_BUTTONS, (unsigned)ZW_NUM_EVENTS,
+             (unsigned)ZW_NUM_SLOTS, (unsigned)ZW_MAX_CONNECTIONS);
     Serial.println(line);
   } else if (strcmp(cmd, "GET") == 0) {
     cmdGet();
   } else if (strcmp(cmd, "SET") == 0) {
     cmdSet(args);
+  } else if (strcmp(cmd, "SETTARGET") == 0) {
+    cmdSetTarget(args);
+  } else if (strcmp(cmd, "PEERS") == 0) {
+    cmdPeers();
+  } else if (strcmp(cmd, "ASSIGN") == 0) {
+    cmdAssign(args);
+  } else if (strcmp(cmd, "CLEARSLOT") == 0) {
+    cmdClearSlot(args);
   } else if (strcmp(cmd, "SAVE") == 0) {
     Serial.println(saveKeymap() ? "OK SAVED" : "ERR SAVE");
   } else if (strcmp(cmd, "LOAD") == 0) {

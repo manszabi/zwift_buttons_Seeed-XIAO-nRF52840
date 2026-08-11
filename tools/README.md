@@ -5,6 +5,9 @@ Ablakos (Tkinter) segédprogram, amivel a **3 üzemmód × 5 gomb × 3 esemény*
 állíthatók be, USB soros porton elküldhetők az eszköznek, és elmenthetők annak
 belső flash memóriájába.
 
+Emellett üzemmódonként megadható, hogy a parancsok **melyik eszközre** menjenek,
+ha az eszköz egyszerre két géphez (pl. Windows PC + telefon) csatlakozik.
+
 ## Indítás Windows alatt (ajánlott)
 
 Kattints duplán a **`zwift_config.bat`** fájlra.
@@ -52,8 +55,10 @@ Linuxon `sudo apt install python3-tk`), és a `pyserial` csomag.
    - **Üzemmód váltás** – a következő üzemmódra léptet.
    - **Zwift nézetváltás** – az 1…9 billentyűket küldi körbe.
    - Hosszú nyomásnál beállítható az **ismétlés** és annak sebessége (ms).
-5. **Küldés az eszközre** – a kiosztás azonnal érvénybe lép.
-6. **Mentés az eszköz memóriájába** – hogy újraindítás után is megmaradjon.
+5. Minden üzemmód fülén felül állítható a **cél eszköz**: csak a Windows PC,
+   csak a telefon, vagy mindkettő.
+6. **Küldés az eszközre** – a kiosztás azonnal érvénybe lép.
+7. **Mentés az eszköz memóriájába** – hogy újraindítás után is megmaradjon.
 
 A kiosztás **JSON fájlba** is menthető és onnan visszatölthető
 (*Mentés fájlba… / Megnyitás fájlból…*). A `default_keymap.json` a firmware
@@ -82,8 +87,12 @@ használható – minden parancs `Enter`-rel zárul.
 
 | Parancs | Válasz | Leírás |
 |---------|--------|--------|
-| `PING` | `OK ZWIFT_BUTTONS PROTO=1 MODES=3 BUTTONS=5 EVENTS=3` | Eszköz azonosítás |
-| `GET` | 45 db `MAP …` sor, majd `END` | A teljes kiosztás lekérése |
+| `PING` | `OK ZWIFT_BUTTONS PROTO=2 MODES=3 BUTTONS=5 EVENTS=3 SLOTS=2 CONNS=2` | Eszköz azonosítás |
+| `GET` | 45 db `MAP …`, 3 db `TARGET …` sor, majd `END` | A teljes konfiguráció lekérése |
+| `SETTARGET <m> <maszk>` | `OK` / `ERR …` | Üzemmód cél-eszköze (1 = PC, 2 = telefon, 3 = mindkettő) |
+| `PEERS` | `SLOT …` / `CONN …` sorok, majd `END` | Fiókok és élő BLE kapcsolatok |
+| `ASSIGN <slot> <conn_hdl>` | `OK` / `ERR …` | Élő kapcsolat hozzárendelése fiókhoz |
+| `CLEARSLOT <slot>` | `OK` / `ERR …` | Fiók-hozzárendelés törlése |
 | `SET <m> <b> <e> <t> <mod> <code> <rep> <ms>` | `OK` / `ERR …` | Egy bejegyzés beállítása |
 | `SAVE` | `OK SAVED` / `ERR SAVE` | Mentés a flash memóriába |
 | `LOAD` | `OK LOADED` / `ERR LOAD` | Visszatöltés a flash memóriából |
@@ -109,3 +118,29 @@ Példa: `SET 0 0 2 1 12 21 0 60` → Normál üzemmód, Gomb 1, hosszú nyomás 
 
 A kiosztás CRC32-vel védve, a `/keymap.bin` fájlban tárolódik. Sérült vagy
 hiányzó fájl esetén a firmware automatikusan a gyári kiosztást használja.
+
+## Két eszköz egyszerre (PC + telefon)
+
+Az eszköz egyszerre két géphez tud csatlakozni. Mivel a BLE
+kapcsolat-azonosítók csatlakozási sorrendben keletkeznek, a firmware a **BLE
+cím** alapján jegyzi meg, melyik a PC és melyik a telefon — így újracsatlakozás
+után is jó marad a hozzárendelés.
+
+**Beállítás:**
+
+1. Párosítsd az eszközt mindkét géppel (mindkettő maradjon csatlakoztatva).
+2. A konfiguráló programban nyomd meg az **„Eszközök hozzárendelése…"** gombot.
+3. A listában megjelenik mindkét csatlakozott eszköz a BLE címével; kattints
+   a megfelelő **„Ez a Windows PC"** / **„Ez a telefon"** gombra.
+4. Zárd be az ablakot, majd **Mentés az eszköz memóriájába**, hogy a
+   hozzárendelés újraindítás után is megmaradjon.
+
+**Amíg egyik eszköz sincs hozzárendelve, minden gombnyomás mindkét
+kapcsolatra kimegy** — így az eszköz párosítás után azonnal használható.
+
+A gyári visszaállítás (`DEFAULTS`) a gomb-kiosztást és a célpontokat
+alapállapotba hozza, de a PC/telefon hozzárendelést **megtartja**.
+
+Ha valamiért mégis egykapcsolatos működés kell, a `zwift_config.h`-ban állítsd
+a `ZW_MAX_CONNECTIONS` értékét 1-re. A mentett konfiguráció formátuma nem
+változik, így oda-vissza váltható.

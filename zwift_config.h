@@ -14,11 +14,27 @@
 #define ZW_NUM_BUTTONS 5  // Gomb 1..5
 #define ZW_NUM_EVENTS 3   // rovid / dupla / hosszu
 
+// Egyszerre ennyi eszközhöz (BLE peripheral kapcsolathoz) csatlakozhat.
+// 1-re állítva a korábbi, egykapcsolatos működést kapjuk vissza; a mentett
+// konfiguráció formátuma ettől nem változik, így oda-vissza váltható.
+#ifndef ZW_MAX_CONNECTIONS
+#define ZW_MAX_CONNECTIONS 2
+#endif
+
+// Cél-eszköz "fiókok". A gombnyomás célpontját üzemmódonként bitmaszk adja meg.
+#define ZW_NUM_SLOTS 2
+#define ZW_SLOT_PC 0     // Windows PC
+#define ZW_SLOT_PHONE 1  // telefon
+
+#define ZW_TARGET_PC (1 << ZW_SLOT_PC)        // 0x01
+#define ZW_TARGET_PHONE (1 << ZW_SLOT_PHONE)  // 0x02
+#define ZW_TARGET_ALL (ZW_TARGET_PC | ZW_TARGET_PHONE)
+
 #define ZW_KEYMAP_MAGIC 0x4B42575AUL  // "ZWBK"
-#define ZW_KEYMAP_VERSION 1
+#define ZW_KEYMAP_VERSION 2
 
 // Az eszköz és a Python konfiguráló program közti protokoll verziója.
-#define ZW_PROTO_VERSION 1
+#define ZW_PROTO_VERSION 2
 
 // Egy gombhoz tartozó esemény típusa.
 enum ZwEvent : uint8_t {
@@ -47,6 +63,15 @@ struct __attribute__((packed)) KeyAction {
   uint16_t repeatMs; // ismétlés két küldése közti idő (ms)
 };
 
+// Egy cél-eszköz azonosítása a BLE címe alapján. A kapcsolat-azonosítók
+// (conn handle) csatlakozási sorrend szerint kapják az értéküket, ezért nem
+// alkalmasak arra, hogy megjegyezzük, melyik a PC és melyik a telefon.
+struct __attribute__((packed)) PeerSlot {
+  uint8_t valid;     // 0 = üres fiók
+  uint8_t addrType;  // ble_gap_addr_t.addr_type
+  uint8_t addr[6];   // ble_gap_addr_t.addr (little endian, ahogy a SoftDevice adja)
+};
+
 // A teljes, flash-be mentett konfiguráció.
 struct __attribute__((packed)) KeymapConfig {
   uint32_t magic;
@@ -55,8 +80,11 @@ struct __attribute__((packed)) KeymapConfig {
   uint8_t modes;
   uint8_t buttons;
   uint8_t events;
-  uint8_t reserved;
+  uint8_t slots;
   KeyAction map[ZW_NUM_MODES][ZW_NUM_BUTTONS][ZW_NUM_EVENTS];
+  uint8_t modeTarget[ZW_NUM_MODES];  // üzemmódonként ZW_TARGET_* bitmaszk
+  uint8_t reserved;
+  PeerSlot peers[ZW_NUM_SLOTS];
   uint32_t crc;  // CRC32 a struktúra elejétől a crc mezőig
 };
 

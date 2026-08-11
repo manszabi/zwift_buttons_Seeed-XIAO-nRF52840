@@ -21,6 +21,31 @@ EVENT_NAMES = ["Rövid nyomás", "Dupla kattintás", "Hosszú nyomás"]
 EVENT_KEYS = ["click", "double", "long"]
 MODE_NAMES = ["Normál (Zwift)", "Verseny / Edzés", "Média vezérlő"]
 
+# --- Cél-eszköz fiókok (egyeznek a firmware ZW_SLOT_* / ZW_TARGET_* értékeivel) ---
+SLOT_PC = 0
+SLOT_PHONE = 1
+SLOT_NAMES = ["Windows PC", "Telefon"]
+
+TARGET_PC = 1 << SLOT_PC       # 0x01
+TARGET_PHONE = 1 << SLOT_PHONE  # 0x02
+TARGET_ALL = TARGET_PC | TARGET_PHONE
+
+TARGET_CHOICES = [
+    (TARGET_PC, "Csak a Windows PC-re"),
+    (TARGET_PHONE, "Csak a telefonra"),
+    (TARGET_ALL, "Mindkét eszközre"),
+]
+
+# A firmware gyári beállítása: a Zwift vezérlés a PC-re, a média mindkettőre.
+DEFAULT_TARGETS = [TARGET_PC, TARGET_PC, TARGET_ALL]
+
+
+def target_label(mask):
+    for value, name in TARGET_CHOICES:
+        if value == mask:
+            return name
+    return "Ismeretlen (0x{:02X})".format(mask)
+
 # --- Módosító bitek (KEYBOARD_MODIFIER_*) ---
 MOD_LCTRL = 0x01
 MOD_LSHIFT = 0x02
