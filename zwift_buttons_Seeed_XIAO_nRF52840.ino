@@ -275,9 +275,13 @@ uint8_t checkForSoftDevice() {
 }
 
 static void disconnectBle() {
-  uint16_t connections = Bluefruit.connected();
-  for (uint16_t conn = 0; conn < connections; conn++) {
-    Bluefruit.disconnect(conn);
+  // FIGYELEM: a Bluefruit.connected() a kapcsolatok SZAMAT adja vissza, nem a
+  // legnagyobb azonositot. A sajat nyilvantartasunkon kell vegigmenni,
+  // kulonben egy 1-es azonositoju kapcsolat bontatlan maradna.
+  for (uint8_t i = 0; i < ZW_MAX_CONNECTIONS; i++) {
+    if (connHandles[i] != BLE_CONN_HANDLE_INVALID) {
+      Bluefruit.disconnect(connHandles[i]);
+    }
   }
 }
 
@@ -316,12 +320,22 @@ void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
   Serial.print("BLE bontva, conn_hdl=");
   Serial.println(conn_handle);
 
-  hasKeyPressed = false;
-  hasConsumerKeyPressed = false;
-  duringLongpress = false;
-  repeatButton = -1;
-  keyPressMillis = 0;
-  pressedTargetCount = 0;
+  // A megszűnt kapcsolatot kivesszük a lenyomott célpontok közül. Ha maradt
+  // másik célpont, az állapotot NEM nullázzuk: a főciklusnak még fel kell
+  // engednie a billentyűt a még élő kapcsolaton, különben ott beragadna.
+  uint8_t kept = 0;
+  for (uint8_t i = 0; i < pressedTargetCount; i++) {
+    if (pressedTargets[i] != conn_handle) pressedTargets[kept++] = pressedTargets[i];
+  }
+  pressedTargetCount = kept;
+
+  if (kept == 0) {
+    hasKeyPressed = false;
+    hasConsumerKeyPressed = false;
+    duringLongpress = false;
+    repeatButton = -1;
+    keyPressMillis = 0;
+  }
 }
 
 // Biztonságos fájlírás: előbb ideiglenes fájlba írunk, és csak hibátlan kiírás
@@ -336,12 +350,10 @@ bool writeFileAtomic(const char* path, const char* tmpPath,
     if (f.open(tmpPath, FILE_O_WRITE)) {
       size_t written = f.write((const uint8_t*)data, len);
       f.close();
-      if (written == len) {
-        if (InternalFS.rename(tmpPath, path)) return true;
-        // Ha a felülírásos átnevezés nem megy, előbb töröljük a régit.
-        InternalFS.remove(path);
-        if (InternalFS.rename(tmpPath, path)) return true;
-      }
+      // A littlefs rename felülírja a célt, ha az létezik. Szándékosan NEM
+      // töröljük előbb a régi fájlt: ha a törlés után az átnevezés is elbukna,
+      // egyszerre veszítenénk el a régit és az újat is.
+      if (written == len && InternalFS.rename(tmpPath, path)) return true;
     }
     delay(50);
   }
@@ -589,12 +601,18 @@ static const KeyAction& currentAction(uint8_t btn, uint8_t evt) {
 }
 
 // Egy élő kapcsolat melyik cél-fiókba tartozik? -1 = nincs hozzárendelve.
+//
+// A getPeerAddr() párosított kapcsolatnál a bond identity címet adja vissza,
+// ami újracsatlakozás után is ugyanaz. Párosítás ELŐTT viszont a nyers
+// kapcsolódási címet kapjuk, ami a telefonoknál rendszeresen változó
+// (resolvable private) cím — azzal nem lehet eszközt azonosítani.
 static int8_t slotOfConn(uint16_t conn_hdl) {
   BLEConnection* conn = Bluefruit.Connection(conn_hdl);
-  if (conn == NULL) return -1;
+  if (conn == NULL || !conn->bonded()) return -1;
   ble_gap_addr_t peer = conn->getPeerAddr();
   for (uint8_t s = 0; s < ZW_NUM_SLOTS; s++) {
     if (!keymap.peers[s].valid) continue;
+    if (keymap.peers[s].addrType != peer.addr_type) continue;
     if (memcmp(keymap.peers[s].addr, peer.addr, 6) == 0) return (int8_t)s;
   }
   return -1;
@@ -631,11 +649,11 @@ static uint8_t currentTargetMask() {
   return keymap.modeTarget[(uint8_t)jelenlegiUzemmod];
 }
 
-static void sendKeyboard(uint8_t modifier, uint8_t keycode) {
-  if (hasKeyPressed || hasConsumerKeyPressed) return;
+static bool sendKeyboard(uint8_t modifier, uint8_t keycode) {
+  if (hasKeyPressed || hasConsumerKeyPressed) return false;
   uint16_t targets[ZW_MAX_CONNECTIONS];
   uint8_t n = collectTargets(currentTargetMask(), targets);
-  if (n == 0) return;
+  if (n == 0) return false;
 
   uint8_t keycodes[6] = { keycode, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
   for (uint8_t i = 0; i < n; i++) {
@@ -645,13 +663,14 @@ static void sendKeyboard(uint8_t modifier, uint8_t keycode) {
   pressedTargetCount = n;
   hasKeyPressed = true;
   delay(5);
+  return true;
 }
 
-static void sendConsumer(uint16_t usage) {
-  if (hasKeyPressed || hasConsumerKeyPressed) return;
+static bool sendConsumer(uint16_t usage) {
+  if (hasKeyPressed || hasConsumerKeyPressed) return false;
   uint16_t targets[ZW_MAX_CONNECTIONS];
   uint8_t n = collectTargets(currentTargetMask(), targets);
-  if (n == 0) return;
+  if (n == 0) return false;
 
   for (uint8_t i = 0; i < n; i++) {
     blehid.consumerKeyPress(targets[i], usage);
@@ -660,6 +679,7 @@ static void sendConsumer(uint16_t usage) {
   pressedTargetCount = n;
   hasConsumerKeyPressed = true;
   delay(5);
+  return true;
 }
 
 // A lenyomás pontosan azokra a kapcsolatokra volt kiküldve, amiket a
@@ -690,14 +710,15 @@ static void fireAction(uint8_t btn, uint8_t evt) {
       break;
 
     case ACT_VIEW_CYCLE: {
-      // A számlálót csak akkor léptetjük, ha a billentyű tényleg kimegy,
-      // különben elcsúszna a Zwift-ben ténylegesen beállított nézettől.
-      if (!Bluefruit.connected() || hasKeyPressed || hasConsumerKeyPressed) break;
-      if (nezet >= 9) nezet = 0;
-      nezet++;
+      // A számlálót csak akkor léptetjük, ha a billentyű tényleg kiment,
+      // különben elcsúszna a Zwift-ben ténylegesen beállított nézettől. A
+      // küldés nem csak kapcsolat hiányában maradhat el, hanem akkor is, ha az
+      // üzemmód célpontja épp nincs csatlakozva — ezért a sendKeyboard()
+      // visszatérési értékére támaszkodunk.
       static const uint8_t HID_KEYS[9] = { HID_KEY_1, HID_KEY_2, HID_KEY_3, HID_KEY_4, HID_KEY_5,
                                            HID_KEY_6, HID_KEY_7, HID_KEY_8, HID_KEY_9 };
-      sendKeyboard(0, HID_KEYS[nezet - 1]);
+      int next = (nezet >= 9) ? 1 : nezet + 1;
+      if (sendKeyboard(0, HID_KEYS[next - 1])) nezet = next;
       break;
     }
 
@@ -847,7 +868,7 @@ void longPressStop5() { onLongStop(4); }
 //
 //   SETTARGET <m> <maszk>                       -> OK
 //   PEERS                                       -> SLOT/CONN sorok + END
-//   ASSIGN <slot> <conn_hdl>                    -> OK
+//   ASSIGN <slot> <conn_hdl>                    -> OK | ERR NOTBONDED
 //   CLEARSLOT <slot>                            -> OK
 // ---------------------------------------------------------------------------
 
@@ -904,9 +925,10 @@ static void cmdPeers() {
     if (conn == NULL) continue;
     ble_gap_addr_t peer = conn->getPeerAddr();
     formatAddr(peer.addr, addrStr, sizeof(addrStr));
-    char line[64];
-    snprintf(line, sizeof(line), "CONN %u %s %d",
-             (unsigned)h, addrStr, (int)slotOfConn(h));
+    char line[72];
+    snprintf(line, sizeof(line), "CONN %u %s %d %u",
+             (unsigned)h, addrStr, (int)slotOfConn(h),
+             (unsigned)(conn->bonded() ? 1 : 0));
     Serial.println(line);
   }
   Serial.println("END");
@@ -948,6 +970,12 @@ static void cmdAssign(const char* args) {
   BLEConnection* conn = Bluefruit.Connection((uint16_t)h);
   if (conn == NULL) {
     Serial.println("ERR NOTCONNECTED");
+    return;
+  }
+  // Párosítás nélkül a cím változó (resolvable private address), tehát
+  // eltárolva soha többé nem egyezne. Ilyenkor inkább hibát adunk.
+  if (!conn->bonded()) {
+    Serial.println("ERR NOTBONDED");
     return;
   }
   ble_gap_addr_t peer = conn->getPeerAddr();

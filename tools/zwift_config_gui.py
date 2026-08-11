@@ -41,6 +41,8 @@ NUM_EVENTS = 3
 FILE_FORMAT = "zwift-buttons-keymap"
 FILE_VERSION = 2
 NUM_SLOTS = 2
+# Ez a program legalább ilyen protokoll-verziójú firmware-t igényel.
+MIN_PROTO = 2
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +120,7 @@ class DeviceLink(object):
     def __init__(self):
         self.ser = None
         self.info = ""
+        self.proto = 0
 
     @property
     def connected(self):
@@ -142,6 +145,15 @@ class DeviceLink(object):
             if not self.info.startswith("OK ZWIFT_BUTTONS"):
                 raise DeviceError(
                     "Az eszköz nem Zwift Buttons konfigurációs firmware-t futtat.")
+            self.proto = self._parse_proto(self.info)
+            # Régebbi firmware nem ismeri a SETTARGET parancsot: a küldés a 45
+            # billentyű után szakadna meg, félig alkalmazott kiosztást hagyva.
+            if self.proto < MIN_PROTO:
+                raise DeviceError(
+                    "Az eszközön régi firmware fut (protokoll {}, ehhez a "
+                    "programhoz {} kell). Töltsd fel az eszközre a repóban "
+                    "lévő firmware aktuális változatát.".format(
+                        self.proto, MIN_PROTO))
         except DeviceError:
             self.close()
             raise
@@ -159,6 +171,17 @@ class DeviceLink(object):
                 pass
         self.ser = None
         self.info = ""
+        self.proto = 0
+
+    @staticmethod
+    def _parse_proto(banner):
+        for token in banner.split():
+            if token.startswith("PROTO="):
+                try:
+                    return int(token[6:])
+                except ValueError:
+                    return 0
+        return 1  # a legelső változat még nem írta ki a verziót
 
     # -- alacsony szint --
 
@@ -285,10 +308,11 @@ class DeviceLink(object):
                     continue
                 if 0 <= idx < NUM_SLOTS:
                     slots[idx] = {"valid": bool(valid), "addr": parts[3]}
-            elif line.startswith("CONN ") and len(parts) == 4:
+            elif line.startswith("CONN ") and len(parts) >= 4:
                 try:
                     conns.append({"handle": int(parts[1]), "addr": parts[2],
-                                  "slot": int(parts[3])})
+                                  "slot": int(parts[3]),
+                                  "bonded": bool(int(parts[4])) if len(parts) > 4 else True})
                 except ValueError:
                     continue
         raise DeviceError("Időtúllépés az eszközlista beolvasása közben.")
@@ -687,20 +711,46 @@ class PeersDialog(tk.Toplevel):
         if not conns:
             ttk.Label(self.conn_frame,
                       text="Jelenleg egy eszköz sincs csatlakozva BLE-n.").pack(anchor="w")
+        unassigned = 0
+        unbonded = 0
         for conn in conns:
             row = ttk.Frame(self.conn_frame)
             row.pack(fill="x", pady=2)
-            current = SLOT_NAMES[conn["slot"]] if 0 <= conn["slot"] < NUM_SLOTS else "nincs"
+            assigned = 0 <= conn["slot"] < NUM_SLOTS
+            if not assigned:
+                unassigned += 1
+            if not conn.get("bonded", True):
+                unbonded += 1
+                current = "nincs párosítva"
+            else:
+                current = SLOT_NAMES[conn["slot"]] if assigned else "nincs hozzárendelve"
             ttk.Label(row, text=conn["addr"], font=("TkFixedFont", 9), width=20).pack(side="left")
-            ttk.Label(row, text="({})".format(current), width=14).pack(side="left")
+            ttk.Label(row, text="({})".format(current), width=18).pack(side="left")
             for slot in range(NUM_SLOTS):
-                ttk.Button(row, text="Ez a " + SLOT_NAMES[slot], width=16,
-                           command=lambda s=slot, h=conn["handle"]: self._assign(s, h)
-                           ).pack(side="left", padx=(4, 0))
+                btn = ttk.Button(row, text="Ez a " + SLOT_NAMES[slot], width=16,
+                                 command=lambda s=slot, h=conn["handle"]: self._assign(s, h))
+                btn.pack(side="left", padx=(4, 0))
+                # Párosítás előtt a BLE cím még változó, tehát nem menthető el.
+                if not conn.get("bonded", True):
+                    btn.state(["disabled"])
 
-        self.status.configure(
-            text="A hozzárendelés azonnal érvényes; a megőrzéshez a főablakban "
-                 "mentsd az eszköz memóriájába.", foreground="#555555")
+        any_assigned = any(sl["valid"] for sl in slots)
+        if unbonded:
+            self.status.configure(
+                text="Van olyan csatlakozott eszköz, amellyel az eszköz még nincs "
+                     "párosítva. A BLE cím párosítás előtt változó, ezért nem "
+                     "menthető el – fejezd be a párosítást, majd Frissítés.",
+                foreground="#a06000")
+        elif any_assigned and unassigned:
+            self.status.configure(
+                text="Figyelem: van hozzá nem rendelt csatlakozott eszköz. Amint "
+                     "legalább egy hozzárendelés létezik, a hozzá nem rendelt "
+                     "eszközök EGYETLEN parancsot sem kapnak meg.",
+                foreground="#a06000")
+        else:
+            self.status.configure(
+                text="A hozzárendelés azonnal érvényes; a megőrzéshez a főablakban "
+                     "mentsd az eszköz memóriájába.", foreground="#555555")
 
     def _assign(self, slot, handle):
         try:

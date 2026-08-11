@@ -91,7 +91,7 @@ használható – minden parancs `Enter`-rel zárul.
 | `GET` | 45 db `MAP …`, 3 db `TARGET …` sor, majd `END` | A teljes konfiguráció lekérése |
 | `SETTARGET <m> <maszk>` | `OK` / `ERR …` | Üzemmód cél-eszköze (1 = PC, 2 = telefon, 3 = mindkettő) |
 | `PEERS` | `SLOT …` / `CONN …` sorok, majd `END` | Fiókok és élő BLE kapcsolatok |
-| `ASSIGN <slot> <conn_hdl>` | `OK` / `ERR …` | Élő kapcsolat hozzárendelése fiókhoz |
+| `ASSIGN <slot> <conn_hdl>` | `OK` / `ERR NOTBONDED` / `ERR …` | Élő kapcsolat hozzárendelése fiókhoz (csak párosítás után) |
 | `CLEARSLOT <slot>` | `OK` / `ERR …` | Fiók-hozzárendelés törlése |
 | `SET <m> <b> <e> <t> <mod> <code> <rep> <ms>` | `OK` / `ERR …` | Egy bejegyzés beállítása |
 | `SAVE` | `OK SAVED` / `ERR SAVE` | Mentés a flash memóriába |
@@ -126,6 +126,12 @@ kapcsolat-azonosítók csatlakozási sorrendben keletkeznek, a firmware a **BLE
 cím** alapján jegyzi meg, melyik a PC és melyik a telefon — így újracsatlakozás
 után is jó marad a hozzárendelés.
 
+> **Fontos:** a hozzárendelés csak **párosítás (bonding) után** lehetséges.
+> Párosítás előtt a telefonok változó (resolvable private) címet használnak,
+> amit elmentve soha többé nem egyezne. A firmware ezért az `ASSIGN` parancsra
+> `ERR NOTBONDED` hibát ad, a konfiguráló programban pedig a gombok tiltva
+> maradnak, amíg a párosítás nem kész.
+
 **Beállítás:**
 
 1. Párosítsd az eszközt mindkét géppel (mindkettő maradjon csatlakoztatva).
@@ -137,6 +143,9 @@ után is jó marad a hozzárendelés.
 
 **Amíg egyik eszköz sincs hozzárendelve, minden gombnyomás mindkét
 kapcsolatra kimegy** — így az eszköz párosítás után azonnal használható.
+Amint viszont legalább egy hozzárendelés létezik, a hozzá nem rendelt eszközök
+**egyetlen parancsot sem kapnak meg**; ezért érdemes mindkettőt hozzárendelni.
+A konfiguráló program figyelmeztet, ha van hozzá nem rendelt csatlakozott eszköz.
 
 A gyári visszaállítás (`DEFAULTS`) a gomb-kiosztást és a célpontokat
 alapállapotba hozza, de a PC/telefon hozzárendelést **megtartja**.
