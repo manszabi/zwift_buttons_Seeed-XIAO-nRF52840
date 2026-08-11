@@ -542,7 +542,10 @@ static void sendKeyboard(uint8_t modifier, uint8_t keycode) {
 static void sendConsumer(uint16_t usage) {
   if (!Bluefruit.connected()) return;
   if (hasKeyPressed || hasConsumerKeyPressed) return;
-  blehid.consumerKeyPress(0, usage);
+  // FIGYELEM: a consumerKeyPress kétparaméteres alakja (conn_hdl, usage), nem
+  // (modosito, usage) — az elsőt véletlenül használva a 0 kapcsolat-azonosítót
+  // jelentene. Itt az egyparaméteres, aktuális kapcsolatra küldő alak kell.
+  blehid.consumerKeyPress(usage);
   hasConsumerKeyPressed = true;
   delay(5);
 }
@@ -589,7 +592,7 @@ static void sendRepeat(const KeyAction& a) {
     uint8_t keycodes[6] = { (uint8_t)a.code, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
     blehid.keyboardReport(a.modifier, keycodes);
   } else if (a.type == ACT_CONSUMER) {
-    blehid.consumerKeyPress(0, a.code);
+    blehid.consumerKeyPress(a.code);  // lásd sendConsumer(): itt nincs conn_hdl
   } else {
     return;
   }
