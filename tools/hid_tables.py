@@ -40,6 +40,16 @@ TARGET_CHOICES = [
 DEFAULT_TARGETS = [TARGET_PC, TARGET_PC, TARGET_ALL]
 
 
+# A műveletenkénti felülbírálás választéka (0 = az üzemmód célpontja).
+TARGET_INHERIT = 0
+
+TARGET_SHORT = {TARGET_PC: "PC", TARGET_PHONE: "telefon", TARGET_ALL: "mindkettő"}
+
+
+def target_short(mask):
+    return TARGET_SHORT.get(mask, "0x{:02X}".format(mask))
+
+
 def target_label(mask):
     for value, name in TARGET_CHOICES:
         if value == mask:

@@ -23,8 +23,8 @@ from hid_tables import (  # noqa: E402
     ACT_CONSUMER, ACT_KEY, ACT_MODE_NEXT, ACT_NONE, ACT_VIEW_CYCLE,
     CONSUMER_KEYS, DEFAULT_TARGETS, EVENT_KEYS, EVENT_NAMES, EV_LONG,
     KEY_CHOICES, KEY_NAMES, MODE_NAMES, MODIFIERS, MODIFIER_KEYSYMS,
-    SLOT_NAMES, TARGET_ALL, TARGET_CHOICES, consumer_label, key_label,
-    keysym_to_hid, target_label,
+    SLOT_NAMES, TARGET_ALL, TARGET_CHOICES, TARGET_INHERIT, consumer_label,
+    key_label, keysym_to_hid, target_label, target_short,
 )
 
 try:
@@ -39,10 +39,10 @@ NUM_MODES = 3
 NUM_BUTTONS = 5
 NUM_EVENTS = 3
 FILE_FORMAT = "zwift-buttons-keymap"
-FILE_VERSION = 2
+FILE_VERSION = 3
 NUM_SLOTS = 2
 # Ez a program legalább ilyen protokoll-verziójú firmware-t igényel.
-MIN_PROTO = 2
+MIN_PROTO = 3
 
 
 # ---------------------------------------------------------------------------
@@ -52,14 +52,17 @@ MIN_PROTO = 2
 class Action(object):
     """Egy (üzemmód, gomb, esemény) hármashoz tartozó művelet."""
 
-    __slots__ = ("type", "modifier", "code", "repeat", "repeat_ms")
+    __slots__ = ("type", "modifier", "code", "repeat", "repeat_ms", "target")
 
-    def __init__(self, type=ACT_NONE, modifier=0, code=0, repeat=0, repeat_ms=60):
+    def __init__(self, type=ACT_NONE, modifier=0, code=0, repeat=0, repeat_ms=60,
+                 target=TARGET_INHERIT):
         self.type = type
         self.modifier = modifier
         self.code = code
         self.repeat = repeat
         self.repeat_ms = repeat_ms
+        # 0 = az üzemmód célpontja érvényes; egyébként saját cél-maszk.
+        self.target = target
 
     def label(self):
         if self.type == ACT_KEY:
@@ -74,6 +77,8 @@ class Action(object):
             return "—"
         if self.repeat:
             text += "  (ismétlő {} ms)".format(self.repeat_ms)
+        if self.target:
+            text += "  → {}".format(target_short(self.target))
         return text
 
     def to_dict(self):
@@ -83,6 +88,7 @@ class Action(object):
             "code": self.code,
             "repeat": self.repeat,
             "repeat_ms": self.repeat_ms,
+            "target": self.target,
         }
 
     @staticmethod
@@ -93,6 +99,7 @@ class Action(object):
             int(d.get("code", 0)),
             int(d.get("repeat", 0)),
             int(d.get("repeat_ms", 60)),
+            int(d.get("target", TARGET_INHERIT)),
         )
 
 
@@ -251,15 +258,17 @@ class DeviceLink(object):
             if not line.startswith("MAP "):
                 continue
             parts = line.split()
-            if len(parts) != 9:
+            if len(parts) not in (9, 10):
                 continue
             try:
-                m, b, e, t, mod, code, rep, ms = (int(x) for x in parts[1:])
+                values = [int(x) for x in parts[1:]]
             except ValueError:
                 continue
+            m, b, e, t, mod, code, rep, ms = values[:8]
+            tgt = values[8] if len(values) > 8 else TARGET_INHERIT
             if m >= NUM_MODES or b >= NUM_BUTTONS or e >= NUM_EVENTS:
                 continue
-            keymap[m][b][e] = Action(t, mod, code, rep, ms)
+            keymap[m][b][e] = Action(t, mod, code, rep, ms, tgt)
             seen += 1
         raise DeviceError("Időtúllépés a kiosztás beolvasása közben.")
 
@@ -270,9 +279,9 @@ class DeviceLink(object):
             for b in range(NUM_BUTTONS):
                 for e in range(NUM_EVENTS):
                     a = keymap[m][b][e]
-                    self.command("SET {} {} {} {} {} {} {} {}".format(
+                    self.command("SET {} {} {} {} {} {} {} {} {}".format(
                         m, b, e, a.type, a.modifier, a.code,
-                        1 if a.repeat else 0, a.repeat_ms))
+                        1 if a.repeat else 0, a.repeat_ms, a.target))
                     done += 1
                     if progress is not None:
                         progress(done, total)
@@ -340,13 +349,14 @@ class DeviceLink(object):
 class ActionDialog(tk.Toplevel):
     """Modális ablak egy művelet beállításához, billentyű-felvétellel."""
 
-    def __init__(self, master, title, action, allow_repeat):
+    def __init__(self, master, title, action, allow_repeat, allow_target=False):
         tk.Toplevel.__init__(self, master)
         self.title(title)
         self.resizable(False, False)
         self.transient(master)
         self.result = None
         self.allow_repeat = allow_repeat
+        self.allow_target = allow_target
 
         self._pressed_mods = set()
 
@@ -366,6 +376,7 @@ class ActionDialog(tk.Toplevel):
                 value=1 if (action.type == ACT_KEY and action.modifier & bit) else 0)
         self.repeat_var = tk.IntVar(value=1 if action.repeat else 0)
         self.repeat_ms_var = tk.IntVar(value=action.repeat_ms or 60)
+        self.action_target_var = tk.IntVar(value=action.target)
 
         self._build()
         self._refresh_state()
@@ -461,6 +472,16 @@ class ActionDialog(tk.Toplevel):
         else:
             self.repeat_box = None
 
+        # Cél-eszköz felülbírálás (csak ott jelenik meg, ahol értelme van)
+        if self.allow_target:
+            target_box = ttk.LabelFrame(outer, text="Cél eszköz", padding=8)
+            target_box.pack(fill="x", pady=(8, 0))
+            choices = [(TARGET_INHERIT, "Az üzemmódnál beállított célpont")]
+            choices += list(TARGET_CHOICES)
+            for value, text in choices:
+                ttk.Radiobutton(target_box, text=text, value=value,
+                                variable=self.action_target_var,
+                                command=self._update_preview).pack(anchor="w")
         # Előnézet + gombok
         self.preview = ttk.Label(outer, text="", font=("TkDefaultFont", 10, "bold"))
         self.preview.pack(anchor="w", pady=(10, 0))
@@ -610,12 +631,14 @@ class ActionDialog(tk.Toplevel):
         except (tk.TclError, ValueError):
             repeat_ms = 60
         repeat_ms = min(max(repeat_ms, 10), 2000)
+        target = self.action_target_var.get()
         if atype == ACT_KEY:
             return Action(ACT_KEY, self._current_modifier(), self.key_var.get(),
-                          repeat, repeat_ms)
+                          repeat, repeat_ms, target)
         if atype == ACT_CONSUMER:
-            return Action(ACT_CONSUMER, 0, self.consumer_var.get(), repeat, repeat_ms)
-        return Action(atype, 0, 0, 0, repeat_ms)
+            return Action(ACT_CONSUMER, 0, self.consumer_var.get(), repeat,
+                          repeat_ms, target)
+        return Action(atype, 0, 0, 0, repeat_ms, target)
 
     def _on_ok(self):
         action = self._build_action()
@@ -895,10 +918,18 @@ class App(ttk.Frame):
             btn.configure(text=self.keymap[m][b][e].label())
         self._refresh_targets()
 
+    # Cél-eszköz felülbírálás csak a Média vezérlő üzemmód 1-es és 2-es
+    # gombjának hosszú nyomásánál állítható – a többi cella az üzemmódhoz
+    # beállított célpontot használja. (A firmware általánosan támogatja a
+    # felülbírálást, itt szándékosan csak ezeken a helyeken kínáljuk fel.)
+    TARGET_OVERRIDE_CELLS = {(2, 0, EV_LONG), (2, 1, EV_LONG)}
+
     def edit_cell(self, mode, button, event):
         title = "{} – Gomb {} – {}".format(MODE_NAMES[mode], button + 1, EVENT_NAMES[event])
         dialog = ActionDialog(self.master, title, self.keymap[mode][button][event],
-                              allow_repeat=(event == EV_LONG))
+                              allow_repeat=(event == EV_LONG),
+                              allow_target=((mode, button, event)
+                                            in self.TARGET_OVERRIDE_CELLS))
         self.master.wait_window(dialog)
         if dialog.result is not None:
             self.keymap[mode][button][event] = dialog.result

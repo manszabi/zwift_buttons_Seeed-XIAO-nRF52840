@@ -431,13 +431,13 @@ void startAdv(void) {
 
 static void setAction(uint8_t mode, uint8_t btn, uint8_t evt,
                       uint8_t type, uint8_t modifier, uint16_t code,
-                      uint8_t repeat, uint16_t repeatMs) {
+                      uint8_t repeat, uint16_t repeatMs, uint8_t target = 0) {
   KeyAction& a = keymap.map[mode][btn][evt];
   a.type = type;
   a.modifier = modifier;
   a.code = code;
   a.repeat = repeat;
-  a.reserved = 0;
+  a.target = target;
   a.repeatMs = repeatMs;
 }
 
@@ -645,14 +645,16 @@ static uint8_t collectTargets(uint8_t mask, uint16_t* out) {
   return n;
 }
 
-static uint8_t currentTargetMask() {
-  return keymap.modeTarget[(uint8_t)jelenlegiUzemmod];
+// Egy művelet cél-maszkja: ha a művelethez tartozik felülbírálás, az számít,
+// egyébként az üzemmódhoz beállított célpont.
+static uint8_t targetMaskOf(const KeyAction& a) {
+  return a.target ? a.target : keymap.modeTarget[(uint8_t)jelenlegiUzemmod];
 }
 
-static bool sendKeyboard(uint8_t modifier, uint8_t keycode) {
+static bool sendKeyboard(uint8_t modifier, uint8_t keycode, uint8_t mask) {
   if (hasKeyPressed || hasConsumerKeyPressed) return false;
   uint16_t targets[ZW_MAX_CONNECTIONS];
-  uint8_t n = collectTargets(currentTargetMask(), targets);
+  uint8_t n = collectTargets(mask, targets);
   if (n == 0) return false;
 
   uint8_t keycodes[6] = { keycode, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
@@ -666,10 +668,10 @@ static bool sendKeyboard(uint8_t modifier, uint8_t keycode) {
   return true;
 }
 
-static bool sendConsumer(uint16_t usage) {
+static bool sendConsumer(uint16_t usage, uint8_t mask) {
   if (hasKeyPressed || hasConsumerKeyPressed) return false;
   uint16_t targets[ZW_MAX_CONNECTIONS];
-  uint8_t n = collectTargets(currentTargetMask(), targets);
+  uint8_t n = collectTargets(mask, targets);
   if (n == 0) return false;
 
   for (uint8_t i = 0; i < n; i++) {
@@ -698,11 +700,11 @@ static void fireAction(uint8_t btn, uint8_t evt) {
   const KeyAction& a = currentAction(btn, evt);
   switch (a.type) {
     case ACT_KEY:
-      sendKeyboard(a.modifier, (uint8_t)a.code);
+      sendKeyboard(a.modifier, (uint8_t)a.code, targetMaskOf(a));
       break;
 
     case ACT_CONSUMER:
-      sendConsumer(a.code);
+      sendConsumer(a.code, targetMaskOf(a));
       break;
 
     case ACT_MODE_NEXT:
@@ -718,7 +720,7 @@ static void fireAction(uint8_t btn, uint8_t evt) {
       static const uint8_t HID_KEYS[9] = { HID_KEY_1, HID_KEY_2, HID_KEY_3, HID_KEY_4, HID_KEY_5,
                                            HID_KEY_6, HID_KEY_7, HID_KEY_8, HID_KEY_9 };
       int next = (nezet >= 9) ? 1 : nezet + 1;
-      if (sendKeyboard(0, HID_KEYS[next - 1])) nezet = next;
+      if (sendKeyboard(0, HID_KEYS[next - 1], targetMaskOf(a))) nezet = next;
       break;
     }
 
@@ -734,7 +736,7 @@ static void sendRepeat(const KeyAction& a) {
   if (a.type != ACT_KEY && a.type != ACT_CONSUMER) return;
 
   uint16_t targets[ZW_MAX_CONNECTIONS];
-  uint8_t n = collectTargets(currentTargetMask(), targets);
+  uint8_t n = collectTargets(targetMaskOf(a), targets);
   if (n == 0) return;
 
   for (uint8_t i = 0; i < n; i++) {
@@ -856,7 +858,7 @@ void longPressStop5() { onLongStop(4); }
 //
 //   PING                                        -> OK ZWIFT_BUTTONS PROTO=1 ...
 //   GET                                         -> MAP ... (45 sor) + END
-//   SET <m> <b> <e> <t> <mod> <code> <rep> <ms> -> OK
+//   SET <m> <b> <e> <t> <mod> <code> <rep> <ms> [<tgt>] -> OK
 //   SAVE                                        -> OK SAVED | ERR SAVE
 //   LOAD                                        -> OK LOADED | ERR LOAD
 //   DEFAULTS                                    -> OK DEFAULTS
@@ -865,6 +867,9 @@ void longPressStop5() { onLongStop(4); }
 //
 //   GET valasza a MAP sorok utan uzemmodonkent egy TARGET <m> <maszk> sort is
 //   tartalmaz (maszk: 1 = PC, 2 = telefon, 3 = mindketto).
+//
+//   A MAP/SET utolso mezoje (tgt) muveletenkenti cel-felulbiralas: 0 eseten az
+//   uzemmod celpontja ervenyes, egyebkent ez a maszk. A SET-nel elhagyhato.
 //
 //   SETTARGET <m> <maszk>                       -> OK
 //   PEERS                                       -> SLOT/CONN sorok + END
@@ -875,10 +880,10 @@ void longPressStop5() { onLongStop(4); }
 static void printMapLine(uint8_t m, uint8_t b, uint8_t e) {
   const KeyAction& a = keymap.map[m][b][e];
   char line[64];
-  snprintf(line, sizeof(line), "MAP %u %u %u %u %u %u %u %u",
+  snprintf(line, sizeof(line), "MAP %u %u %u %u %u %u %u %u %u",
            (unsigned)m, (unsigned)b, (unsigned)e,
            (unsigned)a.type, (unsigned)a.modifier, (unsigned)a.code,
-           (unsigned)a.repeat, (unsigned)a.repeatMs);
+           (unsigned)a.repeat, (unsigned)a.repeatMs, (unsigned)a.target);
   Serial.println(line);
 }
 
@@ -1009,7 +1014,10 @@ static void cmdClearSlot(const char* args) {
 
 static void cmdSet(const char* args) {
   unsigned m, b, e, t, mod, code, rep, ms;
-  if (sscanf(args, "%u %u %u %u %u %u %u %u", &m, &b, &e, &t, &mod, &code, &rep, &ms) != 8) {
+  unsigned tgt = 0;  // elhagyható: 0 = az üzemmód célpontja érvényes
+  int got = sscanf(args, "%u %u %u %u %u %u %u %u %u",
+                   &m, &b, &e, &t, &mod, &code, &rep, &ms, &tgt);
+  if (got != 8 && got != 9) {
     Serial.println("ERR ARGS");
     return;
   }
@@ -1026,8 +1034,13 @@ static void cmdSet(const char* args) {
     Serial.println("ERR VALUE");
     return;
   }
+  if (tgt > ZW_TARGET_ALL) {
+    Serial.println("ERR VALUE");
+    return;
+  }
   setAction((uint8_t)m, (uint8_t)b, (uint8_t)e, (uint8_t)t, (uint8_t)mod,
-            (uint16_t)code, (uint8_t)rep, (uint16_t)(ms == 0 ? 60 : ms));
+            (uint16_t)code, (uint8_t)rep, (uint16_t)(ms == 0 ? 60 : ms),
+            (uint8_t)tgt);
   Serial.println("OK");
 }
 

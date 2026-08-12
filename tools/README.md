@@ -87,13 +87,13 @@ használható – minden parancs `Enter`-rel zárul.
 
 | Parancs | Válasz | Leírás |
 |---------|--------|--------|
-| `PING` | `OK ZWIFT_BUTTONS PROTO=2 MODES=3 BUTTONS=5 EVENTS=3 SLOTS=2 CONNS=2` | Eszköz azonosítás |
+| `PING` | `OK ZWIFT_BUTTONS PROTO=3 MODES=3 BUTTONS=5 EVENTS=3 SLOTS=2 CONNS=2` | Eszköz azonosítás |
 | `GET` | 45 db `MAP …`, 3 db `TARGET …` sor, majd `END` | A teljes konfiguráció lekérése |
 | `SETTARGET <m> <maszk>` | `OK` / `ERR …` | Üzemmód cél-eszköze (1 = PC, 2 = telefon, 3 = mindkettő) |
 | `PEERS` | `SLOT …` / `CONN …` sorok, majd `END` | Fiókok és élő BLE kapcsolatok |
 | `ASSIGN <slot> <conn_hdl>` | `OK` / `ERR NOTBONDED` / `ERR …` | Élő kapcsolat hozzárendelése fiókhoz (csak párosítás után) |
 | `CLEARSLOT <slot>` | `OK` / `ERR …` | Fiók-hozzárendelés törlése |
-| `SET <m> <b> <e> <t> <mod> <code> <rep> <ms>` | `OK` / `ERR …` | Egy bejegyzés beállítása |
+| `SET <m> <b> <e> <t> <mod> <code> <rep> <ms> [<tgt>]` | `OK` / `ERR …` | Egy bejegyzés beállítása |
 | `SAVE` | `OK SAVED` / `ERR SAVE` | Mentés a flash memóriába |
 | `LOAD` | `OK LOADED` / `ERR LOAD` | Visszatöltés a flash memóriából |
 | `DEFAULTS` | `OK DEFAULTS` | Gyári kiosztás betöltése (mentés nélkül) |
@@ -112,6 +112,7 @@ A `MAP` / `SET` mezői:
 | `code` | HID keycode (típus 1, max. `255`) vagy consumer usage (típus 2, max. `65535`) |
 | `rep` | 0/1 – ismétlés nyomva tartás közben (csak hosszú nyomásnál) |
 | `ms` | ismétlési idő ezredmásodpercben |
+| `tgt` | cél-felülbírálás: `0` = az üzemmód célpontja, egyébként `1`/`2`/`3`. A `SET`-nél elhagyható |
 
 Példa: `SET 0 0 2 1 12 21 0 60` → Normál üzemmód, Gomb 1, hosszú nyomás =
 `Alt+Win+R` (mod 12 = 4|8, code 21 = 0x15 = `R`).
@@ -140,6 +141,21 @@ után is jó marad a hozzárendelés.
    a megfelelő **„Ez a Windows PC"** / **„Ez a telefon"** gombra.
 4. Zárd be az ablakot, majd **Mentés az eszköz memóriájába**, hogy a
    hozzárendelés újraindítás után is megmaradjon.
+
+### Egyedi cél egy-egy gombnak
+
+A **Média vezérlő üzemmód Gomb 1 és Gomb 2 hosszú nyomásának** külön cél
+adható, függetlenül az üzemmód beállításától. Ez akkor hasznos, ha ezek a
+gombok gépfüggő parancsot adnak (a gyári kiosztásban `Win+Alt+R`, illetve
+`Alt+Tab` – ezeknek telefonon nincs értelmük), miközben a többi média gomb
+mindkét eszközre mehet.
+
+A konfiguráló programban ennél a két cellánál megjelenik egy **Cél eszköz**
+választó, „Az üzemmódnál beállított célpont" alapértékkel. A cella felirata
+`→ PC` / `→ telefon` utótaggal jelzi, ha felülbírálás van érvényben.
+
+A firmware ezt általánosan támogatja (a `SET` 9. mezője bármelyik cellához),
+a felület viszont szándékosan csak ezen a két helyen kínálja fel.
 
 **Amíg egyik eszköz sincs hozzárendelve, minden gombnyomás mindkét
 kapcsolatra kimegy** — így az eszköz párosítás után azonnal használható.

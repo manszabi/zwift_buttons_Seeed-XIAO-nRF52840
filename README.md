@@ -68,6 +68,10 @@ gombnyomások melyikre menjenek. A gyári beállítás:
 Így a Zwift vezérlése a PC-t érinti, a zene/hangerő viszont a telefont is.
 A beállítás a [konfiguráló programban](tools/README.md) módosítható.
 
+Ezen felül a **Média vezérlő üzemmódban a Gomb 1 és a Gomb 2 hosszú
+nyomásának** külön cél adható – ezek gyárilag gépfüggő parancsok
+(`Win+Alt+R`, `Alt+Tab`), amiknek telefonon nincs értelmük.
+
 ### Üzemmód váltás
 
 A **Gomb 4 dupla kattintásával** (double-click) válthatsz az üzemmódok között:

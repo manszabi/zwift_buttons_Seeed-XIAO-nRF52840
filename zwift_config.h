@@ -34,7 +34,7 @@
 #define ZW_KEYMAP_VERSION 2
 
 // Az eszköz és a Python konfiguráló program közti protokoll verziója.
-#define ZW_PROTO_VERSION 2
+#define ZW_PROTO_VERSION 3
 
 // Egy gombhoz tartozó esemény típusa.
 enum ZwEvent : uint8_t {
@@ -59,7 +59,10 @@ struct __attribute__((packed)) KeyAction {
   uint8_t modifier;  // KEYBOARD_MODIFIER_* bitmaszk (csak ACT_KEY esetén)
   uint16_t code;     // ACT_KEY: HID keycode, ACT_CONSUMER: consumer usage
   uint8_t repeat;    // csak EV_LONG: 1 = ismétlés nyomva tartás közben
-  uint8_t reserved;  // igazítás / későbbi bővítés
+  // Cél-eszköz felülbírálás: 0 = az üzemmód célpontja érvényes, egyébként
+  // ZW_TARGET_* bitmaszk. (Korábban ez a bájt kihasználatlan volt és mindig
+  // 0-ra íródott, ezért a régi mentések változtatás nélkül betölthetők.)
+  uint8_t target;
   uint16_t repeatMs; // ismétlés két küldése közti idő (ms)
 };
 
