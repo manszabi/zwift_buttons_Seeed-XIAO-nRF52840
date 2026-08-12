@@ -11,16 +11,17 @@ Futtatás:
 """
 
 import json
-import os
 import sys
 import time
 import tkinter as tk
+from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# A modul mellől importálunk (hid_tables.py), akkor is, ha máshonnan indítják.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from hid_tables import (  # noqa: E402
-    ACT_CONSUMER, ACT_KEY, ACT_MODE_NEXT, ACT_NONE, ACT_VIEW_CYCLE,
+    ACT_CONSUMER, ACT_KEY, ACT_MODE_NEXT, ACT_NONE, ACT_TYPE_COUNT, ACT_VIEW_CYCLE,
     CONSUMER_KEYS, DEFAULT_TARGETS, EVENT_KEYS, EVENT_NAMES, EV_LONG,
     KEY_CHOICES, KEY_NAMES, MODE_NAMES, MODIFIERS, MODIFIER_KEYSYMS,
     SLOT_NAMES, TARGET_ALL, TARGET_CHOICES, TARGET_INHERIT, consumer_label,
@@ -33,6 +34,8 @@ try:
 except ImportError:  # pragma: no cover
     serial = None
     list_ports = None
+
+DEFAULTS_PATH = Path(__file__).resolve().parent / "default_keymap.json"
 
 BAUDRATE = 115200
 NUM_MODES = 3
@@ -49,7 +52,7 @@ MIN_PROTO = 3
 # Adatmodell
 # ---------------------------------------------------------------------------
 
-class Action(object):
+class Action:
     """Egy (üzemmód, gomb, esemény) hármashoz tartozó művelet."""
 
     __slots__ = ("type", "modifier", "code", "repeat", "repeat_ms", "target")
@@ -64,21 +67,23 @@ class Action(object):
         # 0 = az üzemmód célpontja érvényes; egyébként saját cél-maszk.
         self.target = target
 
-    def label(self):
+    def label(self) -> str:
         if self.type == ACT_KEY:
             text = key_label(self.modifier, self.code)
         elif self.type == ACT_CONSUMER:
             text = consumer_label(self.code)
         elif self.type == ACT_MODE_NEXT:
-            return "Üzemmód váltás"
+            text = "Üzemmód váltás"
         elif self.type == ACT_VIEW_CYCLE:
-            return "Nézetváltás (1-9)"
+            text = "Nézetváltás (1-9)"
         else:
-            return "—"
-        if self.repeat:
-            text += "  (ismétlő {} ms)".format(self.repeat_ms)
+            text = "—"
+        # Az ismétlés csak billentyű/média műveletnél értelmes, a cél-felül-
+        # bírálás viszont bármelyiknél – ezért az utóbbi nem térhet ki korán.
+        if self.repeat and self.type in (ACT_KEY, ACT_CONSUMER):
+            text += f"  (ismétlő {self.repeat_ms} ms)"
         if self.target:
-            text += "  → {}".format(target_short(self.target))
+            text += f"  → {target_short(self.target)}"
         return text
 
     def to_dict(self):
@@ -103,6 +108,58 @@ class Action(object):
         )
 
 
+def _parse_keymap_file(data):
+    """JSON tartalom -> (keymap, célpontok). Hiba esetén kivételt dob.
+
+    A régi (1-es, 2-es verziójú) fájlokból hiányzó mezők a gyári értéket
+    kapják, így azok is betölthetők maradnak.
+    """
+    keymap = empty_keymap()
+    targets = default_targets()
+    for m, mode in enumerate(data["modes"][:NUM_MODES]):
+        mask = int(mode.get("target", targets[m]))
+        if 1 <= mask <= TARGET_ALL:
+            targets[m] = mask
+        for b, button in enumerate(mode["buttons"][:NUM_BUTTONS]):
+            for e in range(NUM_EVENTS):
+                entry = button.get(EVENT_KEYS[e])
+                if entry:
+                    keymap[m][b][e] = Action.from_dict(entry)
+    return keymap, targets
+
+
+def validate_config(keymap, targets):
+    """A konfiguráció ellenőrzése küldés előtt.
+
+    Az eszköz bejegyzésenként utasítja vissza a hibás értéket, és a küldés a
+    hiba helyén állna meg – félig alkalmazott kiosztást hagyva a készüléken.
+    Ezért mindent előre ellenőrzünk, és csak hibátlan konfigurációt küldünk ki.
+    """
+    problems = []
+    for m in range(NUM_MODES):
+        if not 1 <= targets[m] <= TARGET_ALL:
+            problems.append(f"{MODE_NAMES[m]}: érvénytelen cél ({targets[m]})")
+        for b in range(NUM_BUTTONS):
+            for e in range(NUM_EVENTS):
+                a = keymap[m][b][e]
+                where = f"{MODE_NAMES[m]} / Gomb {b + 1} / {EVENT_NAMES[e]}"
+                if not 0 <= a.type < ACT_TYPE_COUNT:
+                    problems.append(f"{where}: ismeretlen művelet-típus ({a.type})")
+                if not 0 <= a.modifier <= 0xFF:
+                    problems.append(f"{where}: érvénytelen módosító ({a.modifier})")
+                if a.type == ACT_KEY and not 0 <= a.code <= 0xFF:
+                    problems.append(f"{where}: a billentyűkód nem fér el egy bájton ({a.code})")
+                if a.type == ACT_CONSUMER and not 0 <= a.code <= 0xFFFF:
+                    problems.append(f"{where}: érvénytelen média kód ({a.code})")
+                if a.repeat not in (0, 1):
+                    problems.append(f"{where}: érvénytelen ismétlés ({a.repeat})")
+                if not 0 <= a.repeat_ms <= 0xFFFF:
+                    problems.append(f"{where}: érvénytelen ismétlési idő ({a.repeat_ms})")
+                if a.target and not 1 <= a.target <= TARGET_ALL:
+                    problems.append(f"{where}: érvénytelen cél-felülbírálás ({a.target})")
+    return problems
+
+
 def default_targets():
     return list(DEFAULT_TARGETS)
 
@@ -121,7 +178,7 @@ class DeviceError(Exception):
     pass
 
 
-class DeviceLink(object):
+class DeviceLink:
     """A firmware sor alapú konfigurációs protokollja fölötti burkoló."""
 
     def __init__(self):
@@ -141,7 +198,7 @@ class DeviceLink(object):
             self.ser = serial.Serial(port, BAUDRATE, timeout=0.4, write_timeout=2.0)
         except Exception as exc:
             self.ser = None
-            raise DeviceError("A port nem nyitható meg ({}): {}".format(port, exc))
+            raise DeviceError(f"A port nem nyitható meg ({port}): {exc}")
         # A TinyUSB CDC-nek kell egy pillanat, mire kész a kapcsolat.
         time.sleep(0.4)
         self.ser.reset_input_buffer()
@@ -157,10 +214,9 @@ class DeviceLink(object):
             # billentyű után szakadna meg, félig alkalmazott kiosztást hagyva.
             if self.proto < MIN_PROTO:
                 raise DeviceError(
-                    "Az eszközön régi firmware fut (protokoll {}, ehhez a "
-                    "programhoz {} kell). Töltsd fel az eszközre a repóban "
-                    "lévő firmware aktuális változatát.".format(
-                        self.proto, MIN_PROTO))
+                    f"Az eszközön régi firmware fut (protokoll {self.proto}, "
+                    f"ehhez a programhoz {MIN_PROTO} kell). Töltsd fel az "
+                    "eszközre a repóban lévő firmware aktuális változatát.")
         except DeviceError:
             self.close()
             raise
@@ -200,13 +256,13 @@ class DeviceLink(object):
             self.ser.write((cmd + "\n").encode("ascii"))
             self.ser.flush()
         except Exception as exc:
-            raise DeviceError("Írási hiba: {}".format(exc))
+            raise DeviceError(f"Írási hiba: {exc}")
 
     def _readline(self):
         try:
             raw = self.ser.readline()
         except Exception as exc:
-            raise DeviceError("Olvasási hiba: {}".format(exc))
+            raise DeviceError(f"Olvasási hiba: {exc}")
         return raw.decode("ascii", errors="replace").strip()
 
     def command(self, cmd, timeout=2.0):
@@ -215,16 +271,16 @@ class DeviceLink(object):
         A firmware egyéb kiírásait (debug sorok) átugorja.
         """
         self._write(cmd)
-        deadline = time.time() + timeout
-        while time.time() < deadline:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
             line = self._readline()
             if not line:
                 continue
             if line.startswith("OK"):
                 return line
             if line.startswith("ERR"):
-                raise DeviceError("Az eszköz hibát jelzett: {} (parancs: {})".format(line, cmd))
-        raise DeviceError("Időtúllépés, nincs válasz erre: {}".format(cmd))
+                raise DeviceError(f"Az eszköz hibát jelzett: {line} (parancs: {cmd})")
+        raise DeviceError(f"Időtúllépés, nincs válasz erre: {cmd}")
 
     # -- magas szint --
 
@@ -234,17 +290,17 @@ class DeviceLink(object):
         keymap = empty_keymap()
         targets = default_targets()
         seen = 0
-        deadline = time.time() + timeout
-        while time.time() < deadline:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
             line = self._readline()
             if not line:
                 continue
             if line == "END":
                 if seen != NUM_MODES * NUM_BUTTONS * NUM_EVENTS:
-                    raise DeviceError("Hiányos kiosztás érkezett ({} sor).".format(seen))
+                    raise DeviceError(f"Hiányos kiosztás érkezett ({seen} sor).")
                 return keymap, targets
             if line.startswith("ERR"):
-                raise DeviceError("Az eszköz hibát jelzett: {}".format(line))
+                raise DeviceError(f"Az eszköz hibát jelzett: {line}")
             if line.startswith("TARGET "):
                 parts = line.split()
                 if len(parts) == 3:
@@ -252,7 +308,9 @@ class DeviceLink(object):
                         m, mask = int(parts[1]), int(parts[2])
                     except ValueError:
                         continue
-                    if 0 <= m < NUM_MODES:
+                    # Érvénytelen maszkot nem viszünk tovább: a mentéskor
+                    # amúgy is elakadna, itt viszont még javítható.
+                    if 0 <= m < NUM_MODES and 1 <= mask <= TARGET_ALL:
                         targets[m] = mask
                 continue
             if not line.startswith("MAP "):
@@ -273,20 +331,27 @@ class DeviceLink(object):
         raise DeviceError("Időtúllépés a kiosztás beolvasása közben.")
 
     def write_config(self, keymap, targets, progress=None):
+        # Előbb ellenőrzünk, csak utána küldünk: egy félúton elakadt küldés
+        # félig alkalmazott kiosztást hagyna az eszközön.
+        problems = validate_config(keymap, targets)
+        if problems:
+            extra = f"\n… és további {len(problems) - 8} hiba" if len(problems) > 8 else ""
+            raise DeviceError("A konfiguráció hibás, ezért semmit nem küldtem el:\n- "
+                              + "\n- ".join(problems[:8]) + extra)
         total = NUM_MODES * NUM_BUTTONS * NUM_EVENTS + NUM_MODES
         done = 0
         for m in range(NUM_MODES):
             for b in range(NUM_BUTTONS):
                 for e in range(NUM_EVENTS):
                     a = keymap[m][b][e]
-                    self.command("SET {} {} {} {} {} {} {} {} {}".format(
-                        m, b, e, a.type, a.modifier, a.code,
-                        1 if a.repeat else 0, a.repeat_ms, a.target))
+                    self.command(
+                        f"SET {m} {b} {e} {a.type} {a.modifier} {a.code} "
+                        f"{1 if a.repeat else 0} {a.repeat_ms} {a.target}")
                     done += 1
                     if progress is not None:
                         progress(done, total)
         for m in range(NUM_MODES):
-            self.command("SETTARGET {} {}".format(m, targets[m]))
+            self.command(f"SETTARGET {m} {targets[m]}")
             done += 1
             if progress is not None:
                 progress(done, total)
@@ -300,15 +365,15 @@ class DeviceLink(object):
         self._write("PEERS")
         slots = [{"valid": False, "addr": "-"} for _ in range(NUM_SLOTS)]
         conns = []
-        deadline = time.time() + timeout
-        while time.time() < deadline:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
             line = self._readline()
             if not line:
                 continue
             if line == "END":
                 return slots, conns
             if line.startswith("ERR"):
-                raise DeviceError("Az eszköz hibát jelzett: {}".format(line))
+                raise DeviceError(f"Az eszköz hibát jelzett: {line}")
             parts = line.split()
             if line.startswith("SLOT ") and len(parts) == 4:
                 try:
@@ -327,19 +392,16 @@ class DeviceLink(object):
         raise DeviceError("Időtúllépés az eszközlista beolvasása közben.")
 
     def assign_slot(self, slot, conn_handle):
-        return self.command("ASSIGN {} {}".format(slot, conn_handle), timeout=3.0)
+        return self.command(f"ASSIGN {slot} {conn_handle}", timeout=3.0)
 
     def clear_slot(self, slot):
-        return self.command("CLEARSLOT {}".format(slot), timeout=3.0)
+        return self.command(f"CLEARSLOT {slot}", timeout=3.0)
 
     def save_to_flash(self):
         return self.command("SAVE", timeout=5.0)
 
     def load_defaults(self):
         return self.command("DEFAULTS", timeout=3.0)
-
-    def set_mode(self, mode):
-        return self.command("MODE {}".format(mode), timeout=2.0)
 
 
 # ---------------------------------------------------------------------------
@@ -496,7 +558,7 @@ class ActionDialog(tk.Toplevel):
         try:
             x = master.winfo_rootx() + (master.winfo_width() - self.winfo_width()) // 2
             y = master.winfo_rooty() + (master.winfo_height() - self.winfo_height()) // 3
-            self.geometry("+{}+{}".format(max(x, 0), max(y, 0)))
+            self.geometry(f"+{max(x, 0)}+{max(y, 0)}")
         except tk.TclError:
             pass
 
@@ -620,7 +682,7 @@ class ActionDialog(tk.Toplevel):
         if self.type_var.get() == ACT_KEY and self.focus_get() is self.capture:
             live = "+".join(name for bit, name in MODIFIERS if bit in self._pressed_mods)
             if live:
-                hint = "   [lenyomva: {}+…]".format(live)
+                hint = f"   [lenyomva: {live}+…]"
         self.preview.configure(text="Beállítás: " + action.label() + hint)
 
     def _build_action(self):
@@ -748,7 +810,7 @@ class PeersDialog(tk.Toplevel):
             else:
                 current = SLOT_NAMES[conn["slot"]] if assigned else "nincs hozzárendelve"
             ttk.Label(row, text=conn["addr"], font=("TkFixedFont", 9), width=20).pack(side="left")
-            ttk.Label(row, text="({})".format(current), width=18).pack(side="left")
+            ttk.Label(row, text=f"({current})", width=18).pack(side="left")
             for slot in range(NUM_SLOTS):
                 btn = ttk.Button(row, text="Ez a " + SLOT_NAMES[slot], width=16,
                                  command=lambda s=slot, h=conn["handle"]: self._assign(s, h))
@@ -891,7 +953,7 @@ class App(ttk.Frame):
                 row=1, column=e + 1, padx=4, pady=(0, 6))
 
         for b in range(NUM_BUTTONS):
-            ttk.Label(frame, text="Gomb {}".format(b + 1)).grid(
+            ttk.Label(frame, text=f"Gomb {b + 1}").grid(
                 row=b + 2, column=0, padx=4, pady=3, sticky="w")
             for e in range(NUM_EVENTS):
                 btn = ttk.Button(frame, text="—", width=26,
@@ -903,8 +965,8 @@ class App(ttk.Frame):
     def _on_target_changed(self, mode):
         self.targets[mode] = self.target_vars[mode].get()
         self.dirty = True
-        self._set_status("{}: {} – a „Küldés az eszközre” gombbal lép érvénybe.".format(
-            MODE_NAMES[mode], target_label(self.targets[mode])))
+        self._set_status(f"{MODE_NAMES[mode]}: {target_label(self.targets[mode])} – "
+                         "a „Küldés az eszközre” gombbal lép érvénybe.")
 
     def _refresh_targets(self):
         for mode in range(NUM_MODES):
@@ -925,7 +987,7 @@ class App(ttk.Frame):
     TARGET_OVERRIDE_CELLS = {(2, 0, EV_LONG), (2, 1, EV_LONG)}
 
     def edit_cell(self, mode, button, event):
-        title = "{} – Gomb {} – {}".format(MODE_NAMES[mode], button + 1, EVENT_NAMES[event])
+        title = f"{MODE_NAMES[mode]} – Gomb {button + 1} – {EVENT_NAMES[event]}"
         dialog = ActionDialog(self.master, title, self.keymap[mode][button][event],
                               allow_repeat=(event == EV_LONG),
                               allow_target=((mode, button, event)
@@ -946,14 +1008,14 @@ class App(ttk.Frame):
                              error=True)
             return
         ports = list(list_ports.comports())
-        labels = ["{} – {}".format(p.device, p.description) for p in ports]
+        labels = [f"{p.device} – {p.description}" for p in ports]
         self._ports = [p.device for p in ports]
         self.port_combo["values"] = labels
         if labels:
             # Ha van XIAO/nRF52/Adafruit jellegű port, azt válasszuk elsőként.
             preferred = 0
             for i, p in enumerate(ports):
-                text = "{} {}".format(p.description, p.manufacturer or "").lower()
+                text = f"{p.description} {p.manufacturer or ''}".lower()
                 if any(k in text for k in ("xiao", "nrf52", "seeed", "adafruit", "cdc")):
                     preferred = i
                     break
@@ -984,7 +1046,7 @@ class App(ttk.Frame):
             self._busy(False)
 
         self.connect_btn.configure(text="Bontás")
-        self._set_status("Csatlakozva: {}  ({})".format(port, self.link.info))
+        self._set_status(f"Csatlakozva: {port}  ({self.link.info})")
         if messagebox.askyesno("Beolvasás",
                                "Beolvassam az eszközön lévő jelenlegi kiosztást?"):
             self.on_read_device()
@@ -1021,7 +1083,7 @@ class App(ttk.Frame):
             self.link.write_config(
                 self.keymap, self.targets,
                 progress=lambda d, t: self._set_status(
-                    "Küldés… {}/{}".format(d, t), update=True))
+                    f"Küldés… {d}/{t}", update=True))
         except DeviceError as exc:
             messagebox.showerror("Küldési hiba", str(exc))
             return
@@ -1103,7 +1165,7 @@ class App(ttk.Frame):
         except OSError as exc:
             messagebox.showerror("Mentési hiba", str(exc))
             return
-        self._set_status("Elmentve: {}".format(path))
+        self._set_status(f"Elmentve: {path}")
 
     def on_open_file(self):
         path = filedialog.askopenfilename(
@@ -1122,48 +1184,33 @@ class App(ttk.Frame):
                                  "Ez nem Zwift Buttons kiosztás-fájl.")
             return
         try:
-            keymap = empty_keymap()
-            targets = default_targets()
-            for m, mode in enumerate(data["modes"][:NUM_MODES]):
-                # A régi (1-es verziójú) fájlokban még nincs célpont; ilyenkor
-                # marad a gyári beállítás.
-                mask = int(mode.get("target", targets[m]))
-                if 1 <= mask <= TARGET_ALL:
-                    targets[m] = mask
-                for b, button in enumerate(mode["buttons"][:NUM_BUTTONS]):
-                    for e in range(NUM_EVENTS):
-                        entry = button.get(EVENT_KEYS[e])
-                        if entry:
-                            keymap[m][b][e] = Action.from_dict(entry)
-        except (KeyError, TypeError, ValueError) as exc:
-            messagebox.showerror("Hibás fájl", "A fájl tartalma hibás: {}".format(exc))
+            keymap, targets = _parse_keymap_file(data)
+        except (KeyError, TypeError, ValueError, IndexError) as exc:
+            messagebox.showerror("Hibás fájl", f"A fájl tartalma hibás: {exc}")
             return
         self.keymap = keymap
         self.targets = targets
         self._refresh_all_cells()
         self.dirty = True
-        self._set_status("Betöltve: {}".format(path))
+        self._set_status(f"Betöltve: {path}")
 
     def _load_local_defaults(self):
-        """Induláskor a repóban lévő alapértelmezett kiosztás betöltése (ha van)."""
-        path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                            "default_keymap.json")
-        if not os.path.exists(path):
+        """Induláskor a gyári kiosztás betöltése a repóban lévő fájlból.
+
+        Mindent-vagy-semmit: egy hibás fájlból nem töltünk be részleges
+        kiosztást, mert az üres celláknak látszana, és a „Küldés az eszközre”
+        felülírná velük az eszköz valódi beállításait.
+        """
+        if not DEFAULTS_PATH.exists():
             return
         try:
-            with open(path, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-            for m, mode in enumerate(data["modes"][:NUM_MODES]):
-                mask = int(mode.get("target", self.targets[m]))
-                if 1 <= mask <= TARGET_ALL:
-                    self.targets[m] = mask
-                for b, button in enumerate(mode["buttons"][:NUM_BUTTONS]):
-                    for e in range(NUM_EVENTS):
-                        entry = button.get(EVENT_KEYS[e])
-                        if entry:
-                            self.keymap[m][b][e] = Action.from_dict(entry)
-        except (OSError, ValueError, KeyError, TypeError):
-            pass
+            keymap, targets = _parse_keymap_file(
+                json.loads(DEFAULTS_PATH.read_text(encoding="utf-8")))
+        except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
+            print(f"Figyelem: a {DEFAULTS_PATH.name} nem olvasható ({exc}); "
+                  "üres kiosztással indulok.", file=sys.stderr)
+            return
+        self.keymap, self.targets = keymap, targets
 
     # -- segédek --
 

@@ -36,6 +36,15 @@
 // Az eszköz és a Python konfiguráló program közti protokoll verziója.
 #define ZW_PROTO_VERSION 3
 
+// Üzemmódok. A sorszám egyben a keymap első indexe is.
+// (Azért itt, és nem a .ino-ban: az Arduino a vázlat elejére generálja a
+// prototípusokat, így az ezt visszaadó függvények különben nem fordulnának.)
+enum uzemmod : uint8_t {
+  normalUzemmod = 0,
+  versenyEdzesUzemmod = 1,
+  mediaVezerloUzemmod = 2
+};
+
 // Egy gombhoz tartozó esemény típusa.
 enum ZwEvent : uint8_t {
   EV_CLICK = 0,   // rövid nyomás

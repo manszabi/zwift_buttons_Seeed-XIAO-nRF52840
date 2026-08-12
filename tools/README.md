@@ -151,8 +151,10 @@ gombok gépfüggő parancsot adnak (a gyári kiosztásban `Win+Alt+R`, illetve
 mindkét eszközre mehet.
 
 A konfiguráló programban ennél a két cellánál megjelenik egy **Cél eszköz**
-választó, „Az üzemmódnál beállított célpont" alapértékkel. A cella felirata
-`→ PC` / `→ telefon` utótaggal jelzi, ha felülbírálás van érvényben.
+választó. A **gyári beállítás itt is „Az üzemmódnál beállított célpont"**,
+vagyis alapból ez a két gomb is mindkét eszközre küld – ha csak a PC-re
+szeretnéd, azt kézzel kell beállítani. A cella felirata `→ PC` / `→ telefon`
+utótaggal jelzi, ha felülbírálás van érvényben.
 
 A firmware ezt általánosan támogatja (a `SET` 9. mezője bármelyik cellához),
 a felület viszont szándékosan csak ezen a két helyen kínálja fel.

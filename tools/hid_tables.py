@@ -11,6 +11,7 @@ ACT_KEY = 1
 ACT_CONSUMER = 2
 ACT_MODE_NEXT = 3
 ACT_VIEW_CYCLE = 4
+ACT_TYPE_COUNT = 5  # érvényesség-ellenőrzéshez (egyezik a firmware-rel)
 
 # --- Események (egyeznek a firmware ZwEvent enumjával) ---
 EV_CLICK = 0
@@ -47,14 +48,14 @@ TARGET_SHORT = {TARGET_PC: "PC", TARGET_PHONE: "telefon", TARGET_ALL: "mindkett�
 
 
 def target_short(mask):
-    return TARGET_SHORT.get(mask, "0x{:02X}".format(mask))
+    return TARGET_SHORT.get(mask, f"0x{mask:02X}")
 
 
 def target_label(mask):
     for value, name in TARGET_CHOICES:
         if value == mask:
             return name
-    return "Ismeretlen (0x{:02X})".format(mask)
+    return f"Ismeretlen (0x{mask:02X})"
 
 # --- Módosító bitek (KEYBOARD_MODIFIER_*) ---
 MOD_LCTRL = 0x01
@@ -107,7 +108,7 @@ def _build_key_names():
         0x39: "Caps Lock",
     })
     for i in range(12):
-        names[0x3A + i] = "F{}".format(i + 1)
+        names[0x3A + i] = f"F{i + 1}"
     names.update({
         0x46: "Print Screen",
         0x47: "Scroll Lock",
@@ -130,14 +131,14 @@ def _build_key_names():
         0x58: "Numpad Enter",
     })
     for i in range(9):
-        names[0x59 + i] = "Numpad {}".format(i + 1)
+        names[0x59 + i] = f"Numpad {i + 1}"
     names.update({
         0x62: "Numpad 0",
         0x63: "Numpad .",
         0x65: "Menü (Application)",
     })
     for i in range(12):
-        names[0x68 + i] = "F{}".format(i + 13)
+        names[0x68 + i] = f"F{i + 13}"
     return names
 
 
@@ -195,9 +196,9 @@ def _build_keysym_map():
         "Menu": 0x65, "App": 0x65,
     })
     for i in range(24):
-        m["F{}".format(i + 1)] = (0x3A + i) if i < 12 else (0x68 + i - 12)
+        m[f"F{i + 1}"] = (0x3A + i) if i < 12 else (0x68 + i - 12)
     for i in range(9):
-        m["KP_{}".format(i + 1)] = 0x59 + i
+        m[f"KP_{i + 1}"] = 0x59 + i
     m["KP_0"] = 0x62
     # Numpad Num Lock nélkül (X11 nevek)
     m.update({
@@ -265,13 +266,13 @@ def modifier_label(modifier):
 
 def key_label(modifier, code):
     """Billentyű-kombináció felirata, pl. 'Ctrl+Alt+R'."""
-    name = KEY_NAMES.get(code, "0x{:02X}".format(code))
+    name = KEY_NAMES.get(code, f"0x{code:02X}")
     mods = modifier_label(modifier)
     return (mods + "+" + name) if mods else name
 
 
 def consumer_label(code):
-    return CONSUMER_NAMES.get(code, "Média 0x{:04X}".format(code))
+    return CONSUMER_NAMES.get(code, f"Média 0x{code:04X}")
 
 
 def keysym_to_hid(keysym):

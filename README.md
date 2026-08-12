@@ -69,8 +69,10 @@ gombnyomások melyikre menjenek. A gyári beállítás:
 A beállítás a [konfiguráló programban](tools/README.md) módosítható.
 
 Ezen felül a **Média vezérlő üzemmódban a Gomb 1 és a Gomb 2 hosszú
-nyomásának** külön cél adható – ezek gyárilag gépfüggő parancsok
-(`Win+Alt+R`, `Alt+Tab`), amiknek telefonon nincs értelmük.
+nyomásának** külön cél adható. Ezek gyárilag gépfüggő parancsok (`Win+Alt+R`,
+`Alt+Tab`), amiknek telefonon nincs értelmük – gyárilag mégis az üzemmód
+célpontját öröklik, tehát ha csak a PC-re szeretnéd őket, állítsd be a
+konfiguráló programban.
 
 ### Üzemmód váltás
 

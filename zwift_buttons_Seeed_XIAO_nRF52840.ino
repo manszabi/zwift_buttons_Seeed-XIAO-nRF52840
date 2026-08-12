@@ -25,8 +25,6 @@ using namespace Adafruit_LittleFS_Namespace;
 #define CONTENTMedia "mediaVezerloUzemmod"
 
 
-Adafruit_LittleFS_Namespace::File file(InternalFS);
-
 void fct_Watchdog();
 
 BLEDis bledis;
@@ -41,10 +39,9 @@ bool hasKeyPressed = false;
 bool hasConsumerKeyPressed = false;
 unsigned long keyPressMillis = 0;
 const int keyReleaseDelay = 100; // ms delay before key release (configurable)
-int offDelay = 900; //sleep delay
-int nezet = 0;
+const uint16_t offDelay = 900;  // alvas elotti tetlenseg masodpercben
+uint8_t nezet = 0;
 bool duringLongpress = false;
-String taroltUzemmod;
 
 // Élő BLE kapcsolatok. A csatlakozás sorrendjében töltődik, a hozzárendelés a
 // PC/telefon fiókokhoz a peer BLE címe alapján történik (lásd slotOfConn).
@@ -58,6 +55,7 @@ static uint8_t pressedTargetCount = 0;
 // Nyomva tartás közbeni ismétlés állapota
 static int8_t repeatButton = -1;       // melyik gomb ismétel éppen (-1 = egyik sem)
 static bool repeatDue = false;         // az első ismétlés azonnal menjen ki
+static bool repeatSentConsumer = false;  // az ismétlés média billentyűt küldött-e
 static unsigned long lastRepeatMillis = 0;
 
 // Soros (USB) konfigurációs protokoll
@@ -84,12 +82,6 @@ static uint32_t watchdogCounter = watchdogMinCounter;
 
 Adafruit_FlashTransport_QSPI flashTransport;
 
-enum uzemmod {
-  normalUzemmod,
-  versenyEdzesUzemmod,
-  mediaVezerloUzemmod
-};
-
 uzemmod jelenlegiUzemmod = normalUzemmod;
 
 
@@ -108,38 +100,7 @@ void setup() {
 
   InternalFS.begin();
 
-  file.open(FILENAME, FILE_O_READ);
-
-  // file existed
-  if (file) {
-    Serial.println(FILENAME " file exists");
-
-    uint32_t readlen;
-    char buffer[64] = { 0 };
-    readlen = file.read(buffer, sizeof(buffer) - 1);
-
-    buffer[readlen] = 0;
-    Serial.println(buffer);
-    taroltUzemmod = buffer;
-    file.close();
-  } else {
-    Serial.print("Nincs " FILENAME ", letrehozas alapertelmezessel ... ");
-    Serial.println(writeFileAtomic(FILENAME, FILENAMETMP, CONTENTNormal,
-                                   strlen(CONTENTNormal))
-                     ? "OK"
-                     : "Failed!");
-  }
-
-  if (taroltUzemmod == CONTENTNormal) {
-    jelenlegiUzemmod = normalUzemmod;
-  } else if (taroltUzemmod == CONTENTVerseny) {
-    jelenlegiUzemmod = versenyEdzesUzemmod;
-  } else if (taroltUzemmod == CONTENTMedia) {
-    jelenlegiUzemmod = mediaVezerloUzemmod;
-  } else {
-    Serial.println("Ismeretlen uzemmod, default: normalUzemmod");
-    jelenlegiUzemmod = normalUzemmod;
-  }
+  jelenlegiUzemmod = readStoredMode();
 
   // Gomb-kiosztás betöltése a flash-ből (ha nincs vagy sérült: gyári alapértelmezés)
   if (!loadKeymap()) {
@@ -202,7 +163,10 @@ void setup() {
   }
 
   Bluefruit.configPrphConn(92, BLE_GAP_EVENT_LENGTH_MIN, 16, 16);
-  Bluefruit.begin(ZW_MAX_CONNECTIONS, 0);
+  // Két kapcsolat több SoftDevice-RAM-ot igényel; ha nem fér el, ezt tudni kell.
+  if (!Bluefruit.begin(ZW_MAX_CONNECTIONS, 0)) {
+    Serial.println("HIBA: a BLE stack nem indult el (kevés a RAM?)");
+  }
   Bluefruit.setTxPower(4);
   Bluefruit.autoConnLed(false);
   Bluefruit.setName("SEEED_ZWIFT");
@@ -239,6 +203,7 @@ void loop() {
 
   updateButtons();
   handleSerial();
+  pruneLostTargets();
 
   if ((hasKeyPressed || hasConsumerKeyPressed) && keyPressMillis == 0) {
     keyPressMillis = millis();
@@ -297,13 +262,18 @@ void connect_callback(uint16_t conn_handle) {
     if (connHandles[i] != BLE_CONN_HANDLE_INVALID) used++;
   }
 
-  Serial.print("BLE csatlakozott, conn_hdl=");
-  Serial.print(conn_handle);
-  Serial.print(" (");
-  Serial.print(used);
-  Serial.print("/");
-  Serial.print(ZW_MAX_CONNECTIONS);
-  Serial.println(")");
+  // A callback külön (magasabb prioritású) taskról fut, ezért csak akkor
+  // írunk a soros portra, ha a debug engedélyezett: egyébként beleírhatna egy
+  // épp folyamatban lévő GET válasz közepébe.
+  if (debugSerial) {
+    Serial.print("BLE csatlakozott, conn_hdl=");
+    Serial.print(conn_handle);
+    Serial.print(" (");
+    Serial.print(used);
+    Serial.print("/");
+    Serial.print(ZW_MAX_CONNECTIONS);
+    Serial.println(")");
+  }
 
   // Amíg van szabad hely, hirdessük magunkat tovább, hogy a másik eszköz is
   // be tudjon csatlakozni. A SoftDevice a csatlakozáskor leállítja a hirdetést.
@@ -317,25 +287,13 @@ void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
   for (uint8_t i = 0; i < ZW_MAX_CONNECTIONS; i++) {
     if (connHandles[i] == conn_handle) connHandles[i] = BLE_CONN_HANDLE_INVALID;
   }
-  Serial.print("BLE bontva, conn_hdl=");
-  Serial.println(conn_handle);
-
-  // A megszűnt kapcsolatot kivesszük a lenyomott célpontok közül. Ha maradt
-  // másik célpont, az állapotot NEM nullázzuk: a főciklusnak még fel kell
-  // engednie a billentyűt a még élő kapcsolaton, különben ott beragadna.
-  uint8_t kept = 0;
-  for (uint8_t i = 0; i < pressedTargetCount; i++) {
-    if (pressedTargets[i] != conn_handle) pressedTargets[kept++] = pressedTargets[i];
+  if (debugSerial) {
+    Serial.print("BLE bontva, conn_hdl=");
+    Serial.println(conn_handle);
   }
-  pressedTargetCount = kept;
-
-  if (kept == 0) {
-    hasKeyPressed = false;
-    hasConsumerKeyPressed = false;
-    duringLongpress = false;
-    repeatButton = -1;
-    keyPressMillis = 0;
-  }
+  // A lenyomás-állapotot szándékosan NEM itt takarítjuk: az a főciklus
+  // adata, ez a függvény pedig másik taskról fut. A pruneLostTargets() a
+  // loop()-ban veszi észre, hogy egy célpont eltűnt.
 }
 
 // Biztonságos fájlírás: előbb ideiglenes fájlba írunk, és csak hibátlan kiírás
@@ -348,7 +306,12 @@ bool writeFileAtomic(const char* path, const char* tmpPath,
     InternalFS.remove(tmpPath);
     Adafruit_LittleFS_Namespace::File f(InternalFS);
     if (f.open(tmpPath, FILE_O_WRITE)) {
+      // A FILE_O_WRITE nem csonkol és a fájl végére pozicionál, ezért egy
+      // esetleg ottmaradt régi ideiglenes fájlhoz hozzáfűzne. A seek(0) és a
+      // záró truncate() garantálja, hogy pontosan len bájt legyen benne.
+      f.seek(0);
       size_t written = f.write((const uint8_t*)data, len);
+      if (written == len) f.truncate(len);
       f.close();
       // A littlefs rename felülírja a célt, ha az létezik. Szándékosan NEM
       // töröljük előbb a régi fájlt: ha a törlés után az átnevezés is elbukna,
@@ -359,6 +322,33 @@ bool writeFileAtomic(const char* path, const char* tmpPath,
   }
   InternalFS.remove(tmpPath);
   return false;
+}
+
+// A tárolt üzemmód beolvasása. Szándékosan fix pufferrel, Arduino String
+// nélkül: a String a heapet használja, ami hosszú futás mellett elaprózódhat.
+uzemmod readStoredMode() {
+  Adafruit_LittleFS_Namespace::File f(InternalFS);
+  if (!f.open(FILENAME, FILE_O_READ)) {
+    Serial.print("Nincs " FILENAME ", letrehozas alapertelmezessel ... ");
+    Serial.println(writeFileAtomic(FILENAME, FILENAMETMP, CONTENTNormal,
+                                   strlen(CONTENTNormal))
+                     ? "OK"
+                     : "Failed!");
+    return normalUzemmod;
+  }
+
+  char buffer[32] = { 0 };
+  int readlen = f.read(buffer, sizeof(buffer) - 1);
+  f.close();
+  if (readlen < 0) readlen = 0;
+  buffer[readlen] = 0;
+
+  if (strcmp(buffer, CONTENTNormal) == 0) return normalUzemmod;
+  if (strcmp(buffer, CONTENTVerseny) == 0) return versenyEdzesUzemmod;
+  if (strcmp(buffer, CONTENTMedia) == 0) return mediaVezerloUzemmod;
+
+  Serial.println("Ismeretlen uzemmod, default: normalUzemmod");
+  return normalUzemmod;
 }
 
 void saveUzemmod(const char* content) {
@@ -395,7 +385,7 @@ void fct_powerdown() {
 
 void fct_Watchdog() {
   watchdogCounter++;
-  if (watchdogCounter == (uint32_t)offDelay) {
+  if (watchdogCounter >= (uint32_t)offDelay) {
     fct_powerdown();
   }
 }
@@ -429,9 +419,12 @@ void startAdv(void) {
 // Gomb-kiosztás (keymap) kezelése
 // ---------------------------------------------------------------------------
 
+// FIGYELEM: itt szándékosan túlterhelés van, nem alapértelmezett paraméter. Az
+// Arduino a vázlat elejére generálja a prototípusokat, és egy alapértelmezett
+// érték a prototípusban ÉS a definícióban is szerepelve fordítási hibát ad.
 static void setAction(uint8_t mode, uint8_t btn, uint8_t evt,
                       uint8_t type, uint8_t modifier, uint16_t code,
-                      uint8_t repeat, uint16_t repeatMs, uint8_t target = 0) {
+                      uint8_t repeat, uint16_t repeatMs, uint8_t target) {
   KeyAction& a = keymap.map[mode][btn][evt];
   a.type = type;
   a.modifier = modifier;
@@ -439,6 +432,12 @@ static void setAction(uint8_t mode, uint8_t btn, uint8_t evt,
   a.repeat = repeat;
   a.target = target;
   a.repeatMs = repeatMs;
+}
+
+static void setAction(uint8_t mode, uint8_t btn, uint8_t evt,
+                      uint8_t type, uint8_t modifier, uint16_t code,
+                      uint8_t repeat, uint16_t repeatMs) {
+  setAction(mode, btn, evt, type, modifier, code, repeat, repeatMs, 0);
 }
 
 // A gyári kiosztás: ugyanaz, ami korábban be volt drótozva a kódba.
@@ -652,7 +651,10 @@ static uint8_t targetMaskOf(const KeyAction& a) {
 }
 
 static bool sendKeyboard(uint8_t modifier, uint8_t keycode, uint8_t mask) {
-  if (hasKeyPressed || hasConsumerKeyPressed) return false;
+  // A duringLongpress is kizáró feltétel: ismétlés közben a főciklus nem
+  // engedi fel a billentyűt, így egy közben indított másik művelet
+  // felengedése is elmaradna (beragadt billentyű a másik eszközön).
+  if (duringLongpress || hasKeyPressed || hasConsumerKeyPressed) return false;
   uint16_t targets[ZW_MAX_CONNECTIONS];
   uint8_t n = collectTargets(mask, targets);
   if (n == 0) return false;
@@ -669,7 +671,7 @@ static bool sendKeyboard(uint8_t modifier, uint8_t keycode, uint8_t mask) {
 }
 
 static bool sendConsumer(uint16_t usage, uint8_t mask) {
-  if (hasKeyPressed || hasConsumerKeyPressed) return false;
+  if (duringLongpress || hasKeyPressed || hasConsumerKeyPressed) return false;
   uint16_t targets[ZW_MAX_CONNECTIONS];
   uint8_t n = collectTargets(mask, targets);
   if (n == 0) return false;
@@ -686,6 +688,26 @@ static bool sendConsumer(uint16_t usage, uint8_t mask) {
 
 // A lenyomás pontosan azokra a kapcsolatokra volt kiküldve, amiket a
 // pressedTargets tárol — a felengedést is ezekre kell elküldeni.
+// A bontott kapcsolatok kivétele a lenyomott célpontok közül. A főciklusból
+// hívjuk, hogy a megosztott állapotot csak egy task módosítsa. Ha egyetlen
+// célpont sem maradt, a lenyomás-állapotot is nullázzuk.
+void pruneLostTargets() {
+  uint8_t kept = 0;
+  for (uint8_t i = 0; i < pressedTargetCount; i++) {
+    if (Bluefruit.connected(pressedTargets[i])) pressedTargets[kept++] = pressedTargets[i];
+  }
+  if (kept == pressedTargetCount) return;
+
+  pressedTargetCount = kept;
+  if (kept == 0) {
+    hasKeyPressed = false;
+    hasConsumerKeyPressed = false;
+    duringLongpress = false;
+    repeatButton = -1;
+    keyPressMillis = 0;
+  }
+}
+
 void releasePressedKeys(bool keyboard, bool consumer) {
   for (uint8_t i = 0; i < pressedTargetCount; i++) {
     uint16_t h = pressedTargets[i];
@@ -749,6 +771,7 @@ static void sendRepeat(const KeyAction& a) {
     pressedTargets[i] = targets[i];
   }
   pressedTargetCount = n;
+  repeatSentConsumer = (a.type == ACT_CONSUMER);
   hasKeyPressed = false;
   hasConsumerKeyPressed = false;
   duringLongpress = true;
@@ -761,12 +784,33 @@ static bool isRepeating(const KeyAction& a) {
 // Folyamatban lévő ismétlés lezárása. Mindkét jelzőt beállítjuk, hogy a
 // főciklus a billentyűzet- és a média-billentyűt is felengedje: nyomva tartás
 // közben a kettő közül bármelyik lehetett az utolsó kiküldött esemény.
+// Ismétlés lezárása a gomb elengedésekor. A felengedést a főciklus küldi ki a
+// keyReleaseDelay letelte után; csak azt a fajtát jelöljük, amit az ismétlés
+// ténylegesen küldött, hogy ne menjen fölösleges felengedés a hostnak (és ne
+// tiltsuk le indokolatlanul a többi gombot a késleltetés idejére).
 static void finishRepeat() {
   repeatButton = -1;
   repeatDue = false;
   duringLongpress = false;
-  hasKeyPressed = true;
-  hasConsumerKeyPressed = true;
+  if (repeatSentConsumer) {
+    hasConsumerKeyPressed = true;
+  } else {
+    hasKeyPressed = true;
+  }
+}
+
+// Ismétlés azonnali lezárása, ha egy másik gomb veszi át. Itt nem bízhatjuk a
+// felengedést a főciklusra: az új ismétlés még előtte felülírná a célpont-
+// listát, és a régi célponton beragadna a billentyű.
+static void abortRepeat() {
+  releasePressedKeys(!repeatSentConsumer, repeatSentConsumer);
+  pressedTargetCount = 0;
+  repeatButton = -1;
+  repeatDue = false;
+  duringLongpress = false;
+  hasKeyPressed = false;
+  hasConsumerKeyPressed = false;
+  keyPressMillis = 0;
 }
 
 static void onClick(uint8_t btn) {
@@ -787,9 +831,9 @@ static void onLongStart(uint8_t btn) {
   const KeyAction& a = currentAction(btn, EV_LONG);
   if (isRepeating(a)) {
     // Ha egy másik gomb ismétlése volt folyamatban (két gomb egyszerre
-    // nyomva), azt előbb rendesen lezárjuk, hogy ne ragadjon be a billentyű.
+    // nyomva), azt előbb lezárjuk, hogy ne ragadjon be a billentyű.
     if (repeatButton >= 0 && repeatButton != (int8_t)btn) {
-      finishRepeat();
+      abortRepeat();
     }
     repeatButton = (int8_t)btn;
     repeatDue = true;  // az első ismétlés azonnal menjen ki
