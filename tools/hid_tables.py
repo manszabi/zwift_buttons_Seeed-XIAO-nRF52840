@@ -55,6 +55,10 @@ REPEAT_RELEASE = 0x02
 REPEAT_HOLD_MOD = 0x04
 REPEAT_MASK = REPEAT_ENABLED | REPEAT_RELEASE | REPEAT_HOLD_MOD
 
+# Külön leütéseknél a firmware a leütés-impulzus (20 ms) miatt ennél rövidebb
+# ismétlési időt nem tud tartani, és csendben felhúzná – lásd onLongDuring().
+REPEAT_MIN_MS_RELEASE = 30
+
 
 # A műveletenkénti felülbírálás választéka (0 = az üzemmód célpontja).
 TARGET_INHERIT = 0

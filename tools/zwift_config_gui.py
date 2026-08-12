@@ -24,7 +24,7 @@ from hid_tables import (  # noqa: E402
     ACT_CONSUMER, ACT_KEY, ACT_MODE_NEXT, ACT_NONE, ACT_TYPE_COUNT, ACT_VIEW_CYCLE,
     CONSUMER_KEYS, CONSUMER_MAX_USAGE, DEFAULT_TARGETS, EVENT_KEYS, EVENT_NAMES, EV_LONG,
     KEY_CHOICES, KEY_NAMES, MODE_NAMES, MODIFIERS, MODIFIER_KEYSYMS,
-    REPEAT_ENABLED, REPEAT_HOLD_MOD, REPEAT_MASK, REPEAT_RELEASE,
+    REPEAT_ENABLED, REPEAT_HOLD_MOD, REPEAT_MASK, REPEAT_MIN_MS_RELEASE, REPEAT_RELEASE,
     SLOT_NAMES, TARGET_ALL, TARGET_CHOICES, TARGET_INHERIT, consumer_label,
     key_label, keysym_to_hid, target_label, target_short,
 )
@@ -119,9 +119,19 @@ def _parse_keymap_file(data):
 
     A régi (1-es, 2-es verziójú) fájlokból hiányzó mezők a gyári értéket
     kapják, így azok is betölthetők maradnak.
+
+    A 4-es fájlverzió előtt a `repeat` mező csak 0/1 lehetett, és az 1 a
+    billentyűt végig lenyomva tartotta – ez a hostnál beragadt billentyűnek
+    látszik. A firmware a saját mentését betöltéskor átalakítja
+    (migrateKeymapV2toV3); ugyanezt kell tennünk a fájlokkal is, különben egy
+    régi mentés visszatöltése csendben visszahozná a hibás működést.
     """
     keymap = empty_keymap()
     targets = default_targets()
+    try:
+        file_version = int(data.get("version", 1))
+    except (TypeError, ValueError):
+        file_version = 1
     for m, mode in enumerate(data["modes"][:NUM_MODES]):
         mask = int(mode.get("target", targets[m]))
         if 1 <= mask <= TARGET_ALL:
@@ -130,7 +140,10 @@ def _parse_keymap_file(data):
             for e in range(NUM_EVENTS):
                 entry = button.get(EVENT_KEYS[e])
                 if entry:
-                    keymap[m][b][e] = Action.from_dict(entry)
+                    action = Action.from_dict(entry)
+                    if file_version < 4 and action.repeat == REPEAT_ENABLED:
+                        action.repeat |= REPEAT_RELEASE
+                    keymap[m][b][e] = action
     return keymap, targets
 
 
@@ -355,21 +368,31 @@ class DeviceLink:
                               + "\n- ".join(problems[:8]) + extra)
         total = NUM_MODES * NUM_BUTTONS * NUM_EVENTS + NUM_MODES
         done = 0
+
+        def send_step(cmd):
+            # Egy félúton megszakadt küldés félig alkalmazott kiosztást hagy az
+            # eszközön. A hibaüzenetben megmondjuk, hol tartottunk, hogy a
+            # felhasználó tudja: az eszköz állapota vegyes, újraküldés kell.
+            nonlocal done
+            try:
+                self.command(cmd)
+            except DeviceError as exc:
+                raise DeviceError(
+                    f"{exc}\n\nAz eszközre {done}/{total} beállítás ment ki, "
+                    "tehát a kiosztás félig alkalmazott. Szüntesd meg a hiba "
+                    "okát, és küldd el újra.")
+            done += 1
+            if progress is not None:
+                progress(done, total)
+
         for m in range(NUM_MODES):
             for b in range(NUM_BUTTONS):
                 for e in range(NUM_EVENTS):
                     a = keymap[m][b][e]
-                    self.command(
-                        f"SET {m} {b} {e} {a.type} {a.modifier} {a.code} "
-                        f"{a.repeat} {a.repeat_ms} {a.target}")
-                    done += 1
-                    if progress is not None:
-                        progress(done, total)
+                    send_step(f"SET {m} {b} {e} {a.type} {a.modifier} {a.code} "
+                              f"{a.repeat} {a.repeat_ms} {a.target}")
         for m in range(NUM_MODES):
-            self.command(f"SETTARGET {m} {targets[m]}")
-            done += 1
-            if progress is not None:
-                progress(done, total)
+            send_step(f"SETTARGET {m} {targets[m]}")
 
     def read_peers(self, timeout=4.0):
         """(fiókok, élő kapcsolatok) beolvasása.
@@ -451,7 +474,12 @@ class ActionDialog(tk.Toplevel):
             self.mod_vars[bit] = tk.IntVar(
                 value=1 if (action.type == ACT_KEY and action.modifier & bit) else 0)
         self.repeat_var = tk.IntVar(value=1 if action.repeat & REPEAT_ENABLED else 0)
-        self.release_var = tk.IntVar(value=1 if action.repeat & REPEAT_RELEASE else 0)
+        # Ha a cellán még nincs ismétlés, a bekapcsoláskor a KÜLÖN LEÜTÉSEK módot
+        # kínáljuk fel: enélkül az új ismétlés a nyomva tartott (beragadtnak
+        # látszó) módban indulna, amit a gyári kiosztás sem használ.
+        self.release_var = tk.IntVar(
+            value=1 if (action.repeat & REPEAT_RELEASE)
+            or not (action.repeat & REPEAT_ENABLED) else 0)
         self.holdmod_var = tk.IntVar(value=1 if action.repeat & REPEAT_HOLD_MOD else 0)
         self.repeat_ms_var = tk.IntVar(value=action.repeat_ms or 60)
         self.action_target_var = tk.IntVar(value=action.target)
@@ -752,6 +780,10 @@ class ActionDialog(tk.Toplevel):
             repeat = REPEAT_ENABLED
             if self.repeat_box is not None and self.release_var.get():
                 repeat |= REPEAT_RELEASE
+                # A firmware ennél rövidebb időt úgysem tud tartani (a leütés
+                # impulzusának is be kell férnie), és csendben felhúzná — akkor
+                # viszont a felirat mást ígérne, mint ami történik.
+                repeat_ms = max(repeat_ms, REPEAT_MIN_MS_RELEASE)
                 if self.holdmod_var.get():
                     repeat |= REPEAT_HOLD_MOD
         target = self.action_target_var.get()
@@ -1218,7 +1250,10 @@ class App(ttk.Frame):
         except OSError as exc:
             messagebox.showerror("Mentési hiba", str(exc))
             return
-        self._set_status(f"Elmentve: {path}")
+        # A munka fájlba került, tehát kilépéskor már nincs mit félteni. (Az
+        # eszközre küldés ettől függetlenül külön lépés – ezt írja a státusz is.)
+        self.dirty = False
+        self._set_status(f"Elmentve: {path} – az eszközre külön kell elküldeni.")
 
     def on_open_file(self):
         path = filedialog.askopenfilename(
@@ -1232,7 +1267,9 @@ class App(ttk.Frame):
         except (OSError, ValueError) as exc:
             messagebox.showerror("Megnyitási hiba", str(exc))
             return
-        if data.get("format") != FILE_FORMAT:
+        # Érvényes JSON is lehet lista vagy szám: ilyenkor a .get() hívás
+        # kezeletlen kivétellel szállna el, a felhasználó pedig semmit nem látna.
+        if not isinstance(data, dict) or data.get("format") != FILE_FORMAT:
             messagebox.showerror("Ismeretlen fájl",
                                  "Ez nem Zwift Buttons kiosztás-fájl.")
             return
@@ -1244,8 +1281,10 @@ class App(ttk.Frame):
         self.keymap = keymap
         self.targets = targets
         self._refresh_all_cells()
-        self.dirty = True
-        self._set_status(f"Betöltve: {path}")
+        # A betöltött tartalom megvan a fájlban, tehát kilépéskor nem veszne el;
+        # az eszközre viszont még nem ment ki.
+        self.dirty = False
+        self._set_status(f"Betöltve: {path} – az eszközre külön kell elküldeni.")
 
     def _load_local_defaults(self):
         """Induláskor a gyári kiosztás betöltése a repóban lévő fájlból.

@@ -65,9 +65,12 @@ Linuxon `sudo apt install python3-tk`), és a `pyserial` csomag.
 7. **Mentés az eszköz memóriájába** – hogy újraindítás után is megmaradjon.
 
 A kiosztás **JSON fájlba** is menthető és onnan visszatölthető
-(*Mentés fájlba… / Megnyitás fájlból…*). A `default_keymap.json` a firmware
-gyári kiosztását tartalmazza; a program indításkor ezt tölti be, így eszköz
-nélkül is szerkeszthető egy kiosztás.
+(*Mentés fájlba… / Megnyitás fájlból…*). A régebbi programmal mentett fájlok is
+betölthetők: a 4-esnél régebbi fájlverziónál az ismétlődő bejegyzések a
+*„külön leütések"* módra alakulnak, ahogy a firmware is teszi a saját mentésével.
+
+A `default_keymap.json` a firmware gyári kiosztását tartalmazza; a program
+indításkor ezt tölti be, így eszköz nélkül is szerkeszthető egy kiosztás.
 
 > A Win (GUI) billentyűt az operációs rendszer gyakran elkapja, ezért azt a
 > „Win” pipával érdemes beállítani a felvétel helyett. Ugyanez igaz az
@@ -115,7 +118,7 @@ A `MAP` / `SET` mezői:
 | `mod` | módosító bitmaszk: 1 = Ctrl, 2 = Shift, 4 = Alt, 8 = Win (jobb oldali: 16/32/64/128) |
 | `code` | HID keycode (típus 1, max. `255`) vagy consumer usage (típus 2, max. `1023` = `0x03FF`, mert a HID leíró eddig hirdet). Fölötte `ERR VALUE` |
 | `rep` | ismétlés bitmaszk (csak hosszú nyomásnál). Érvényes értékek: `0` = nincs, `1` = nyomva tartva, `3` = külön leütések, `7` = külön leütések + módosító nyomva. Egyéb kombináció `ERR VALUE` |
-| `ms` | ismétlési idő ezredmásodpercben |
+| `ms` | ismétlési idő ezredmásodpercben. Külön leütéseknél (`rep` 3/7) a firmware 30 ms alá nem megy |
 | `tgt` | cél-felülbírálás: `0` = az üzemmód célpontja, egyébként `1`/`2`/`3`. A `SET`-nél elhagyható |
 
 Példa: `SET 0 0 2 1 12 21 0 60` → Normál üzemmód, Gomb 1, hosszú nyomás =
@@ -133,6 +136,11 @@ A hosszú nyomáshoz beállítható ismétlés kétféleképp működhet:
 | **Külön leütések** *(gyári)* | `3` | Minden ismétlés egy teljes leütés + felengedés. Az ismétlési idő pontosan azt jelenti, amit beállítottál. |
 | **Külön leütések, módosító nyomva** | `7` | Mint fent, de az `Alt` / `Ctrl` / `Win` végig nyomva marad, és csak a gomb elengedésekor jön fel. Csak módosítós billentyűnél. |
 | **Nyomva tartva** | `1` | A billentyű végig lenyomva marad, és a számítógép a **saját** ismétlési sebességével pörgeti. |
+
+Külön leütéseknél az ismétlési idő alsó határa **30 ms**: a leütés-impulzusnak
+(20 ms) és a felengedésnek is be kell férnie két ismétlés közé. A konfiguráló
+program ennél kisebb értéket automatikusan 30 ms-ra emel, hogy a cella felirata
+ne ígérjen olyan sebességet, amit az eszköz nem tud tartani.
 
 A különbség oka, hogy a HID billentyűzet-jelentés a billentyű **állapotát**
 írja le, nem egy leütést. Felengedés nélkül újraküldve a Windows folyamatosan

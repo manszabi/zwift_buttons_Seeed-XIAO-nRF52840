@@ -58,6 +58,15 @@ static bool repeatDue = false;         // az első ismétlés azonnal menjen ki
 static bool repeatSentConsumer = false;  // az ismétlés média billentyűt küldött-e
 static unsigned long lastRepeatMillis = 0;
 
+// Mit küld éppen az ismétlés. Nyomva tartás közben megváltozhat az üzemmód, és
+// vele a művelet is; ha a kiküldött billentyű vagy a célpont más lenne, az
+// ismétlést le kell zárni — különben a RÉGI billentyű felengedetlenül maradna
+// (a felengedés fajtája és címzettje ugyanis az új műveletet követné).
+static uint8_t repeatType = ACT_NONE;
+static uint16_t repeatCode = 0;
+static uint8_t repeatModifier = 0;
+static uint8_t repeatMask = 0;
+
 // Az ismétlés leütés-impulzusa. A felengedést nem közvetlenül a leütés után
 // küldjük: egy pár ms-os impulzust a képkockánként mintavételező alkalmazások
 // kihagyhatnak, egy blokkoló delay() pedig az egész főciklust megállítaná.
@@ -82,9 +91,14 @@ OneButton button4(BUTTON_PIN[4], true);
 OneButton button5(BUTTON_PIN[0], true);
 
 // A gombok sorrendje a kiosztás második indexe: Gomb 1..5.
-static OneButton* const buttons[ZW_NUM_BUTTONS] = {
+static OneButton* const buttons[] = {
   &button1, &button2, &button3, &button4, &button5
 };
+// Ha a ZW_NUM_BUTTONS változik, itt is fel kell venni a gombot: e nélkül a
+// tömb csendben nullákkal töltődne, és az updateButtons() null mutatót
+// dereferálna az első körben.
+static_assert(sizeof(buttons) / sizeof(buttons[0]) == ZW_NUM_BUTTONS,
+              "a buttons[] tomb es a ZW_NUM_BUTTONS nem egyezik");
 
 
 #define WAKEUP_PIN 2
@@ -166,10 +180,12 @@ void loop() {
   uzemmod elozoUzemmod = jelenlegiUzemmod;
   updateLeds();
 
+  // A leütés-impulzus lezárása a gomb-tickek ELŐTT fut: így egy elhúzódó kör
+  // után is kimegy a felengedés, mielőtt a következő ismétlés elindulna.
+  updateRepeatTap();
   updateButtons();
   handleSerial();
   pruneLostTargets();
-  updateRepeatTap();
 
   if ((hasKeyPressed || hasConsumerKeyPressed) && keyPressMillis == 0) {
     keyPressMillis = millis();
@@ -728,7 +744,6 @@ void releasePressedKeys(bool keyboard, bool consumer) {
   }
 }
 
-// Egyszeri művelet (rövid / dupla / nem ismétlődő hosszú nyomás).
 // Az ismétlés leütés-impulzusának lezárása. Ha van nyomva tartandó módosító,
 // csak magát a billentyűt engedjük fel (Alt+Tab), egyébként teljeset küldünk.
 static void endRepeatTap() {
@@ -753,6 +768,7 @@ void updateRepeatTap() {
   }
 }
 
+// Egyszeri művelet végrehajtása (rövid / dupla / nem ismétlődő hosszú nyomás).
 static void fireAction(uint8_t btn, uint8_t evt) {
   const KeyAction& a = currentAction(btn, evt);
   switch (a.type) {
@@ -792,6 +808,24 @@ static void fireAction(uint8_t btn, uint8_t evt) {
 static void sendRepeat(const KeyAction& a) {
   if (a.type != ACT_KEY && a.type != ACT_CONSUMER) return;
 
+  // Egy még függő leütés-impulzust itt zárunk le, nem bízzuk a főciklusra: ha
+  // egy kör hosszabbra nyúlik az ismétlési időnél, a következő ismétlés
+  // előbb érkezne, mint a felengedés — és az impulzus felülíródva elveszne.
+  // A host ilyenkor végig lenyomva látná a billentyűt (beragadt billentyű).
+  if (repeatTapPending) endRepeatTap();
+
+  // Ha egy rövid/dupla nyomásból még függ egy lenyomás, azt előbb felengedjük.
+  // A pressedTargets listát mindjárt felülírjuk, és a főciklus utána már nem
+  // tudná, kinek tartozik felengedéssel — a régi célponton (pl. a telefonon,
+  // ahová az ismétlés nem is megy) végleg lenyomva ragadna a billentyű.
+  if (hasKeyPressed || hasConsumerKeyPressed) {
+    releasePressedKeys(hasKeyPressed, hasConsumerKeyPressed);
+    hasKeyPressed = false;
+    hasConsumerKeyPressed = false;
+    pressedTargetCount = 0;
+    keyPressMillis = 0;
+  }
+
   uint16_t targets[ZW_MAX_CONNECTIONS];
   uint8_t n = collectTargets(targetMaskOf(a), targets);
   if (n == 0) return;
@@ -807,6 +841,10 @@ static void sendRepeat(const KeyAction& a) {
   }
   pressedTargetCount = n;
   repeatSentConsumer = (a.type == ACT_CONSUMER);
+  repeatType = a.type;
+  repeatCode = a.code;
+  repeatModifier = a.modifier;
+  repeatMask = targetMaskOf(a);
 
   if (a.repeat & ZW_REPEAT_RELEASE) {
     // Külön leütésekként küldjük: a HID jelentés a billentyű ÁLLAPOTÁT írja le,
@@ -843,6 +881,7 @@ static void finishRepeat() {
   repeatButton = -1;
   repeatDue = false;
   duringLongpress = false;
+  repeatType = ACT_NONE;
   // Záró felengedés akkor is, ha az ismétlések között már engedtünk fel: ez a
   // biztonsági háló arra az esetre, ha egy közbenső felengedés elveszne.
   if (pressedTargetCount == 0) return;
@@ -858,6 +897,7 @@ static void finishRepeat() {
 // listát, és a régi célponton beragadna a billentyű.
 static void abortRepeat() {
   repeatTapPending = false;
+  repeatType = ACT_NONE;
   releasePressedKeys(!repeatSentConsumer, repeatSentConsumer);
   pressedTargetCount = 0;
   repeatButton = -1;
@@ -903,11 +943,18 @@ static void onLongDuring(uint8_t btn) {
   if (repeatButton != (int8_t)btn) return;
 
   // Az üzemmód menet közben is megváltozhat (másik gomb dupla kattintása vagy
-  // a MODE parancs). Ilyenkor a currentAction() már MÁS műveletet ad vissza;
-  // ha az nem ismétlődő, az ismétlést le kell zárni — különben a nulla
-  // ismétlési idő miatt fékezetlenül szórnánk ki a billentyűt.
+  // a MODE parancs). Ilyenkor a currentAction() már MÁS műveletet ad vissza.
+  // Le kell zárni az ismétlést, ha
+  //   - az új művelet nem ismétlődő (különben a nulla ismétlési idő miatt
+  //     fékezetlenül szórnánk ki a billentyűt), vagy
+  //   - más billentyűt/média kódot vagy más célpontot küldene: a felengedés
+  //     mindig az ÉPPEN aktuális műveletet követi, így a régi billentyű
+  //     felengedés nélkül maradna a régi célponton.
   const KeyAction& a = currentAction(btn, EV_LONG);
-  if (!isRepeating(a)) {
+  if (!isRepeating(a)
+      || (repeatType != ACT_NONE
+          && (a.type != repeatType || a.code != repeatCode
+              || a.modifier != repeatModifier || targetMaskOf(a) != repeatMask))) {
     abortRepeat();
     return;
   }
