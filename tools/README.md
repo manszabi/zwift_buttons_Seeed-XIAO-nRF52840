@@ -57,6 +57,8 @@ Linuxon `sudo apt install python3-tk`), és a `pyserial` csomag.
    - **Zwift nézetváltás** – az 1…9 billentyűket küldi körbe.
    - Hosszú nyomásnál beállítható az **ismétlés**, annak sebessége (ms), és
      hogy **külön leütésekként** menjen-e (lásd lentebb).
+   - Az ablak alján a cella **cél eszköze** is megadható – alapból az
+     üzemmódnál beállított célpontot örökli (lásd *Egyedi cél gombonként*).
 5. Minden üzemmód fülén felül állítható a **cél eszköz**: csak a Windows PC,
    csak a telefon, vagy mindkettő.
 6. **Küldés az eszközre** – a kiosztás azonnal érvénybe lép.

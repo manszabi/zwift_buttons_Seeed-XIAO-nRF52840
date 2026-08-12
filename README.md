@@ -9,8 +9,8 @@ Az eszköz 5 fizikai gombbal rendelkezik, és 3 különböző üzemmódot támog
 ## 📋 Jellemzők
 
 - **BLE HID billentyűzet** – Az eszköz Bluetooth billentyűzetként párosítható bármely számítógéphez, telefonhoz vagy tablethez
-- **Két eszköz egyszerre** – Egyidejűleg csatlakozhat pl. a Windows PC-hez és a telefonhoz; üzemmódonként állítható, hogy a parancsok melyikre menjenek
-- **5 fizikai gomb** – Mindegyik gombhoz 3 művelet tartozik: rövid nyomás (click), dupla kattintás (double-click), hosszú nyomás (long press)
+- **Két eszköz egyszerre** – Egyidejűleg csatlakozhat pl. a Windows PC-hez és a telefonhoz; üzemmódonként állítható, hogy a parancsok melyikre menjenek, és gombonként (mind a 45 cellánál) felül is bírálható
+- **5 fizikai gomb** – Mindegyik gombhoz 3 művelet tartozik: rövid nyomás (click), dupla kattintás (double-click), hosszú nyomás (long press – 800 ms tartás után indul)
 - **3 üzemmód** – Normál (Zwift), Verseny/Edzés, Média vezérlő
 - **Szabadon konfigurálható kiosztás** – Mind a 45 billentyű-kombináció (3 üzemmód × 5 gomb × 3 esemény) átállítható a mellékelt [Python konfiguráló programmal](tools/README.md), USB-n keresztül, újraprogramozás nélkül
 - **Állítható ismétlés** – Nyomva tartásnál beállítható az ismétlés sebessége, hogy külön leütésekként menjen-e (különben a számítógép a saját ütemében ismétel), és hogy a módosító nyomva maradjon-e (Alt+Tab ablakváltáshoz)
@@ -100,7 +100,7 @@ Az üzemmód automatikusan mentődik a belső fájlrendszerbe, így újraindít�
 | **Gomb 1** | ← Bal nyíl (kanyarodás balra) | F9 | GUI+ALT+R |
 | **Gomb 2** | Enter (kiválasztás) | Escape (vissza) | H (ugrás a segítséghez) |
 | **Gomb 3** | → Jobb nyíl (kanyarodás jobbra) | F10 | GUI+ALT+G |
-| **Gomb 4** | ↓ Le nyíl | ⚙️ Üzemmód váltás | ↓ Le nyíl (ismétlődő) |
+| **Gomb 4** | ↓ Le nyíl | ⚙️ Üzemmód váltás | ↓ Le nyíl (ismétlődő, 30 ms) |
 | **Gomb 5** | ↑ Fel nyíl | 1-9 nézet váltás (ciklikus) | T |
 
 ### 🔵 Verseny/Edzés üzemmód
@@ -110,7 +110,7 @@ Az üzemmód automatikusan mentődik a belső fájlrendszerbe, így újraindít�
 | **Gomb 1** | Page Down | Numpad – (nehézség csökkentés) | ← Bal nyíl |
 | **Gomb 2** | Space (erőbedobás) | Tab | Enter |
 | **Gomb 3** | Page Up | Numpad + (nehézség növelés) | → Jobb nyíl |
-| **Gomb 4** | G | ⚙️ Üzemmód váltás | ↓ Le nyíl (ismétlődő) |
+| **Gomb 4** | G | ⚙️ Üzemmód váltás | ↓ Le nyíl (ismétlődő, 70 ms) |
 | **Gomb 5** | E | 1-9 nézet váltás (ciklikus) | ↑ Fel nyíl |
 
 ### 🟢 Média vezérlő üzemmód
@@ -120,8 +120,8 @@ Az üzemmód automatikusan mentődik a belső fájlrendszerbe, így újraindít�
 | **Gomb 1** | ⏮ Előző szám | F9 | GUI+ALT+R *(csak PC)* |
 | **Gomb 2** | ⏯ Play/Pause | Escape | ALT+Tab (ablakváltó, lépked amíg nyomva tartod) *(csak PC)* |
 | **Gomb 3** | ⏭ Következő szám | F10 | GUI+ALT+G *(csak PC)* |
-| **Gomb 4** | 🔇 Némítás | ⚙️ Üzemmód váltás | 🔉 Hangerő csökkentés (ismétlődő) |
-| **Gomb 5** | ⚙️ Beállítások megnyitás | 1-9 nézet váltás (ciklikus) | 🔊 Hangerő növelés (ismétlődő) |
+| **Gomb 4** | 🔇 Némítás | ⚙️ Üzemmód váltás | 🔉 Hangerő csökkentés (ismétlődő, 70 ms) |
+| **Gomb 5** | 🎵 Médialejátszó indítása | 1-9 nézet váltás (ciklikus) | 🔊 Hangerő növelés (ismétlődő, 70 ms) |
 
 > 🎙️ **Hangasszisztens:** a média billentyűk között választható a
 > *Hangasszisztens (Siri/Google)* és az *Asszisztens (Android)* kód is, így
@@ -154,7 +154,8 @@ python zwift_config_gui.py
    kattints a táblázat bármelyik cellájára, majd **nyomd le a kívánt
    billentyű-kombinációt** – a program felveszi (a módosítók pipákkal is
    állíthatók, illetve média billentyű, üzemmód váltás vagy nézetváltás is
-   választható).
+   választható). A szerkesztő ablak alján a cella **saját cél eszköze** is
+   megadható, ha az adott parancsnak a többitől eltérő helyre kell mennie.
 3. **Küldés az eszközre** – azonnal érvénybe lép.
 4. **Mentés az eszköz memóriájába** – hogy újraindítás után is megmaradjon.
 
