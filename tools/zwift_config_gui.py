@@ -980,11 +980,11 @@ class App(ttk.Frame):
             btn.configure(text=self.keymap[m][b][e].label())
         self._refresh_targets()
 
-    # Cél-eszköz felülbírálás csak a Média vezérlő üzemmód 1-es és 2-es
-    # gombjának hosszú nyomásánál állítható – a többi cella az üzemmódhoz
-    # beállított célpontot használja. (A firmware általánosan támogatja a
-    # felülbírálást, itt szándékosan csak ezeken a helyeken kínáljuk fel.)
-    TARGET_OVERRIDE_CELLS = {(2, 0, EV_LONG), (2, 1, EV_LONG)}
+    # Cél-eszköz felülbírálás a Média vezérlő üzemmód 1-es, 2-es és 3-as
+    # gombjának hosszú nyomásánál állítható – ezek gépfüggő parancsok, a többi
+    # cella az üzemmódhoz beállított célpontot használja. (A firmware
+    # általánosan támogatja, itt szándékosan csak ezeken kínáljuk fel.)
+    TARGET_OVERRIDE_CELLS = {(2, 0, EV_LONG), (2, 1, EV_LONG), (2, 2, EV_LONG)}
 
     def edit_cell(self, mode, button, event):
         title = f"{MODE_NAMES[mode]} – Gomb {button + 1} – {EVENT_NAMES[event]}"

@@ -144,17 +144,24 @@ után is jó marad a hozzárendelés.
 
 ### Egyedi cél egy-egy gombnak
 
-A **Média vezérlő üzemmód Gomb 1 és Gomb 2 hosszú nyomásának** külön cél
-adható, függetlenül az üzemmód beállításától. Ez akkor hasznos, ha ezek a
-gombok gépfüggő parancsot adnak (a gyári kiosztásban `Win+Alt+R`, illetve
-`Alt+Tab` – ezeknek telefonon nincs értelmük), miközben a többi média gomb
-mindkét eszközre mehet.
+A **Média vezérlő üzemmód Gomb 1, Gomb 2 és Gomb 3 hosszú nyomásának** külön
+cél adható, függetlenül az üzemmód beállításától. Ezek gépfüggő parancsok
+(`Win+Alt+R`, `Alt+Tab`, `Win+Alt+G`), amiknek telefonon nincs értelmük –
+ezért **gyárilag mindhárom csak a Windows PC-re megy**, miközben a többi média
+gomb mindkét eszközre.
 
-A konfiguráló programban ennél a két cellánál megjelenik egy **Cél eszköz**
-választó. A **gyári beállítás itt is „Az üzemmódnál beállított célpont"**,
-vagyis alapból ez a két gomb is mindkét eszközre küld – ha csak a PC-re
-szeretnéd, azt kézzel kell beállítani. A cella felirata `→ PC` / `→ telefon`
-utótaggal jelzi, ha felülbírálás van érvényben.
+| Média vezérlő, hosszú nyomás | Parancs | Gyári cél |
+|------------------------------|---------|-----------|
+| Gomb 1 | `Win+Alt+R` | Csak a Windows PC |
+| Gomb 2 | `Alt+Tab` | Csak a Windows PC |
+| Gomb 3 | `Win+Alt+G` | Csak a Windows PC |
+| Gomb 4 | 🔉 Hangerő – | Az üzemmód célpontja (mindkettő) |
+| Gomb 5 | 🔊 Hangerő + | Az üzemmód célpontja (mindkettő) |
+
+A konfiguráló programban ennél a három cellánál megjelenik egy **Cél eszköz**
+választó, amivel ez átállítható („Az üzemmódnál beállított célpont" is
+választható). A cella felirata `→ PC` / `→ telefon` utótaggal jelzi, ha
+felülbírálás van érvényben.
 
 A firmware ezt általánosan támogatja (a `SET` 9. mezője bármelyik cellához),
 a felület viszont szándékosan csak ezen a két helyen kínálja fel.

@@ -460,6 +460,10 @@ void loadDefaultKeymap() {
   // Cél-eszközök üzemmódonként: a Zwift vezérlés a PC-re megy, a média
   // vezérlés mindkét eszközre. A fiók-hozzárendelés (melyik a PC, melyik a
   // telefon) párosítás után a konfiguráló programban állítható be.
+  //
+  // Kivétel: a média üzemmód 1-3. gombjának hosszú nyomása gépfüggő parancs
+  // (Win+Alt+R, Alt+Tab, Win+Alt+G), aminek telefonon nincs értelme — ezek
+  // műveletenkénti felülbírálással csak a PC-re mennek.
   keymap.modeTarget[0] = ZW_TARGET_PC;   // Normál (Zwift)
   keymap.modeTarget[1] = ZW_TARGET_PC;   // Verseny / edzés
   keymap.modeTarget[2] = ZW_TARGET_ALL;  // Média vezérlő
@@ -511,15 +515,15 @@ void loadDefaultKeymap() {
   // --- Média vezérlő üzemmód ---
   setAction(2, 0, EV_CLICK, ACT_CONSUMER, 0, HID_USAGE_CONSUMER_SCAN_PREVIOUS, 0, 0);
   setAction(2, 0, EV_DOUBLE, ACT_KEY, 0, HID_KEY_F9, 0, 0);
-  setAction(2, 0, EV_LONG, ACT_KEY, MOD_GUI_ALT, HID_KEY_R, 0, 0);
+  setAction(2, 0, EV_LONG, ACT_KEY, MOD_GUI_ALT, HID_KEY_R, 0, 0, ZW_TARGET_PC);
 
   setAction(2, 1, EV_CLICK, ACT_CONSUMER, 0, HID_USAGE_CONSUMER_PLAY_PAUSE, 0, 0);
   setAction(2, 1, EV_DOUBLE, ACT_KEY, 0, HID_KEY_ESCAPE, 0, 0);
-  setAction(2, 1, EV_LONG, ACT_KEY, KEYBOARD_MODIFIER_LEFTALT, HID_KEY_TAB, 0, 0);
+  setAction(2, 1, EV_LONG, ACT_KEY, KEYBOARD_MODIFIER_LEFTALT, HID_KEY_TAB, 0, 0, ZW_TARGET_PC);
 
   setAction(2, 2, EV_CLICK, ACT_CONSUMER, 0, HID_USAGE_CONSUMER_SCAN_NEXT, 0, 0);
   setAction(2, 2, EV_DOUBLE, ACT_KEY, 0, HID_KEY_F10, 0, 0);
-  setAction(2, 2, EV_LONG, ACT_KEY, MOD_GUI_ALT, HID_KEY_G, 0, 0);
+  setAction(2, 2, EV_LONG, ACT_KEY, MOD_GUI_ALT, HID_KEY_G, 0, 0, ZW_TARGET_PC);
 
   setAction(2, 3, EV_CLICK, ACT_CONSUMER, 0, HID_USAGE_CONSUMER_MUTE, 0, 0);
   setAction(2, 3, EV_DOUBLE, ACT_MODE_NEXT, 0, 0, 0, 0);

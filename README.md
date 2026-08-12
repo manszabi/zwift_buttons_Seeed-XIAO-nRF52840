@@ -68,11 +68,10 @@ gombnyomások melyikre menjenek. A gyári beállítás:
 Így a Zwift vezérlése a PC-t érinti, a zene/hangerő viszont a telefont is.
 A beállítás a [konfiguráló programban](tools/README.md) módosítható.
 
-Ezen felül a **Média vezérlő üzemmódban a Gomb 1 és a Gomb 2 hosszú
-nyomásának** külön cél adható. Ezek gyárilag gépfüggő parancsok (`Win+Alt+R`,
-`Alt+Tab`), amiknek telefonon nincs értelmük – gyárilag mégis az üzemmód
-célpontját öröklik, tehát ha csak a PC-re szeretnéd őket, állítsd be a
-konfiguráló programban.
+Ezen felül a **Média vezérlő üzemmódban a Gomb 1, Gomb 2 és Gomb 3 hosszú
+nyomásának** külön célja van: ezek gépfüggő parancsok (`Win+Alt+R`, `Alt+Tab`,
+`Win+Alt+G`), amiknek telefonon nincs értelmük, ezért **gyárilag csak a Windows
+PC-re** mennek. A konfiguráló programban ez a három cella külön is átállítható.
 
 ### Üzemmód váltás
 
@@ -114,9 +113,9 @@ Az üzemmód automatikusan mentődik a belső fájlrendszerbe, így újraindít�
 
 | Gomb | Kattintás (Click) | Dupla kattintás (Double-click) | Hosszú nyomás (Long press) |
 |------|-------------------|-------------------------------|---------------------------|
-| **Gomb 1** | ⏮ Előző szám | F9 | GUI+ALT+R |
-| **Gomb 2** | ⏯ Play/Pause | Escape | ALT+Tab (ablakváltás) |
-| **Gomb 3** | ⏭ Következő szám | F10 | GUI+ALT+G |
+| **Gomb 1** | ⏮ Előző szám | F9 | GUI+ALT+R *(csak PC)* |
+| **Gomb 2** | ⏯ Play/Pause | Escape | ALT+Tab (ablakváltás) *(csak PC)* |
+| **Gomb 3** | ⏭ Következő szám | F10 | GUI+ALT+G *(csak PC)* |
 | **Gomb 4** | 🔇 Némítás | ⚙️ Üzemmód váltás | 🔉 Hangerő csökkentés (ismétlődő) |
 | **Gomb 5** | ⚙️ Beállítások megnyitás | 1-9 nézet váltás (ciklikus) | 🔊 Hangerő növelés (ismétlődő) |
 

@@ -301,7 +301,7 @@
             "code": 21,
             "repeat": 0,
             "repeat_ms": 60,
-            "target": 0
+            "target": 1
           }
         },
         {
@@ -327,7 +327,7 @@
             "code": 43,
             "repeat": 0,
             "repeat_ms": 60,
-            "target": 0
+            "target": 1
           }
         },
         {
@@ -353,7 +353,7 @@
             "code": 10,
             "repeat": 0,
             "repeat_ms": 60,
-            "target": 0
+            "target": 1
           }
         },
         {
