@@ -422,14 +422,13 @@ class DeviceLink:
 class ActionDialog(tk.Toplevel):
     """Modális ablak egy művelet beállításához, billentyű-felvétellel."""
 
-    def __init__(self, master, title, action, allow_repeat, allow_target=False):
+    def __init__(self, master, title, action, allow_repeat):
         tk.Toplevel.__init__(self, master)
         self.title(title)
         self.resizable(False, False)
         self.transient(master)
         self.result = None
         self.allow_repeat = allow_repeat
-        self.allow_target = allow_target
 
         self._pressed_mods = set()
 
@@ -566,16 +565,17 @@ class ActionDialog(tk.Toplevel):
         else:
             self.repeat_box = None
 
-        # Cél-eszköz felülbírálás (csak ott jelenik meg, ahol értelme van)
-        if self.allow_target:
-            target_box = ttk.LabelFrame(outer, text="Cél eszköz", padding=8)
-            target_box.pack(fill="x", pady=(8, 0))
-            choices = [(TARGET_INHERIT, "Az üzemmódnál beállított célpont")]
-            choices += list(TARGET_CHOICES)
-            for value, text in choices:
-                ttk.Radiobutton(target_box, text=text, value=value,
-                                variable=self.action_target_var,
-                                command=self._update_preview).pack(anchor="w")
+        # Cél-eszköz felülbírálás. Minden cellánál felkínáljuk; alapértelmezés az
+        # üzemmódnál beállított célpont öröklése, így a beállítás csak akkor tér
+        # el, ha a felhasználó szándékosan átállítja.
+        self.target_box = ttk.LabelFrame(outer, text="Cél eszköz", padding=8)
+        self.target_box.pack(fill="x", pady=(8, 0))
+        choices = [(TARGET_INHERIT, "Az üzemmódnál beállított célpont")]
+        choices += list(TARGET_CHOICES)
+        for value, text in choices:
+            ttk.Radiobutton(self.target_box, text=text, value=value,
+                            variable=self.action_target_var,
+                            command=self._update_preview).pack(anchor="w")
         # Előnézet + gombok
         self.preview = ttk.Label(outer, text="", font=("TkDefaultFont", 10, "bold"))
         self.preview.pack(anchor="w", pady=(10, 0))
@@ -717,6 +717,13 @@ class ActionDialog(tk.Toplevel):
             self.holdmod_check.state(["!disabled"] if hold_ok else ["disabled"])
             if not hold_ok:
                 self.holdmod_var.set(0)
+
+        # Célpontja csak annak a műveletnek van, ami küld is valamit: a „Nincs
+        # művelet" és az üzemmódváltás nem megy ki egyik eszközre sem.
+        can_target = atype in (ACT_KEY, ACT_CONSUMER, ACT_VIEW_CYCLE)
+        if not can_target:
+            self.action_target_var.set(TARGET_INHERIT)
+        self._set_widget_state(self.target_box, "normal" if can_target else "disabled")
 
         self._update_preview()
 
@@ -1030,18 +1037,10 @@ class App(ttk.Frame):
             btn.configure(text=self.keymap[m][b][e].label())
         self._refresh_targets()
 
-    # Cél-eszköz felülbírálás a Média vezérlő üzemmód 1-es, 2-es és 3-as
-    # gombjának hosszú nyomásánál állítható – ezek gépfüggő parancsok, a többi
-    # cella az üzemmódhoz beállított célpontot használja. (A firmware
-    # általánosan támogatja, itt szándékosan csak ezeken kínáljuk fel.)
-    TARGET_OVERRIDE_CELLS = {(2, 0, EV_LONG), (2, 1, EV_LONG), (2, 2, EV_LONG)}
-
     def edit_cell(self, mode, button, event):
         title = f"{MODE_NAMES[mode]} – Gomb {button + 1} – {EVENT_NAMES[event]}"
         dialog = ActionDialog(self.master, title, self.keymap[mode][button][event],
-                              allow_repeat=(event == EV_LONG),
-                              allow_target=((mode, button, event)
-                                            in self.TARGET_OVERRIDE_CELLS))
+                              allow_repeat=(event == EV_LONG))
         self.master.wait_window(dialog)
         if dialog.result is not None:
             self.keymap[mode][button][event] = dialog.result

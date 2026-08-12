@@ -183,13 +183,26 @@ után is jó marad a hozzárendelés.
 4. Zárd be az ablakot, majd **Mentés az eszköz memóriájába**, hogy a
    hozzárendelés újraindítás után is megmaradjon.
 
-### Egyedi cél egy-egy gombnak
+### Egyedi cél gombonként
 
-A **Média vezérlő üzemmód Gomb 1, Gomb 2 és Gomb 3 hosszú nyomásának** külön
-cél adható, függetlenül az üzemmód beállításától. Ezek gépfüggő parancsok
-(`Win+Alt+R`, `Alt+Tab`, `Win+Alt+G`), amiknek telefonon nincs értelmük –
-ezért **gyárilag mindhárom csak a Windows PC-re megy**, miközben a többi média
-gomb mindkét eszközre.
+Minden cella – **mind a 3 üzemmód, mind az 5 gomb, mind a 3 esemény** (rövid /
+dupla / hosszú nyomás), összesen 45 – kaphat saját célt, ami felülírja az
+üzemmódét. A művelet szerkesztő ablakában alul van a **Cél eszköz** választó:
+
+| Választás | Jelentés |
+|-----------|----------|
+| **Az üzemmódnál beállított célpont** | alapértelmezés: örökli az üzemmód célját |
+| Csak a Windows PC | mindig a PC-re megy, akkor is, ha az üzemmód mindkettőre küld |
+| Csak a telefon | mindig a telefonra megy |
+| Mindkét eszköz | mindig mindkettőre megy |
+
+A cella felirata `→ PC` / `→ telefon` / `→ mindkettő` utótaggal jelzi, ha
+felülbírálás van érvényben. A választó letiltva jelenik meg a „Nincs művelet" és
+az „Üzemmód váltás" típusnál, mert ezek nem küldenek semmit egyik eszközre sem.
+
+**Gyárilag egyetlen kivétel van**, minden más cella örököl: a **Média vezérlő
+üzemmód Gomb 1, Gomb 2 és Gomb 3 hosszú nyomása** gépfüggő parancs
+(`Win+Alt+R`, `Alt+Tab`, `Win+Alt+G`), aminek telefonon nincs értelme.
 
 | Média vezérlő, hosszú nyomás | Parancs | Gyári cél |
 |------------------------------|---------|-----------|
@@ -199,13 +212,7 @@ gomb mindkét eszközre.
 | Gomb 4 | 🔉 Hangerő – | Az üzemmód célpontja (mindkettő) |
 | Gomb 5 | 🔊 Hangerő + | Az üzemmód célpontja (mindkettő) |
 
-A konfiguráló programban ennél a három cellánál megjelenik egy **Cél eszköz**
-választó, amivel ez átállítható („Az üzemmódnál beállított célpont" is
-választható). A cella felirata `→ PC` / `→ telefon` utótaggal jelzi, ha
-felülbírálás van érvényben.
-
-A firmware ezt általánosan támogatja (a `SET` 9. mezője bármelyik cellához),
-a felület viszont szándékosan csak ezen a három helyen kínálja fel.
+Soros parancsból ugyanez a `SET` 9. mezője (lásd a protokoll-táblázatot).
 
 **Amíg egyik eszköz sincs hozzárendelve, minden gombnyomás mindkét
 kapcsolatra kimegy** — így az eszköz párosítás után azonnal használható.

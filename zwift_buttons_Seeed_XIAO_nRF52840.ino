@@ -438,9 +438,11 @@ void loadDefaultKeymap() {
   // vezérlés mindkét eszközre. A fiók-hozzárendelés (melyik a PC, melyik a
   // telefon) párosítás után a konfiguráló programban állítható be.
   //
-  // Kivétel: a média üzemmód 1-3. gombjának hosszú nyomása gépfüggő parancs
-  // (Win+Alt+R, Alt+Tab, Win+Alt+G), aminek telefonon nincs értelme — ezek
-  // műveletenkénti felülbírálással csak a PC-re mennek.
+  // Bármelyik művelet kaphat saját célt (KeyAction.target), ez felülírja az
+  // üzemmódét; gyárilag egy kivétellel mindegyik 0, azaz örököl. A kivétel a
+  // média üzemmód 1-3. gombjának hosszú nyomása: gépfüggő parancsok
+  // (Win+Alt+R, Alt+Tab, Win+Alt+G), amiknek telefonon nincs értelmük, ezért
+  // csak a PC-re mennek.
   keymap.modeTarget[0] = ZW_TARGET_PC;   // Normál (Zwift)
   keymap.modeTarget[1] = ZW_TARGET_PC;   // Verseny / edzés
   keymap.modeTarget[2] = ZW_TARGET_ALL;  // Média vezérlő

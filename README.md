@@ -69,10 +69,13 @@ gombnyomások melyikre menjenek. A gyári beállítás:
 Így a Zwift vezérlése a PC-t érinti, a zene/hangerő viszont a telefont is.
 A beállítás a [konfiguráló programban](tools/README.md) módosítható.
 
-Ezen felül a **Média vezérlő üzemmódban a Gomb 1, Gomb 2 és Gomb 3 hosszú
-nyomásának** külön célja van: ezek gépfüggő parancsok (`Win+Alt+R`, `Alt+Tab`,
-`Win+Alt+G`), amiknek telefonon nincs értelmük, ezért **gyárilag csak a Windows
-PC-re** mennek. A konfiguráló programban ez a három cella külön is átállítható.
+Ezen felül **bármelyik gombnak, bármelyik üzemmódban és bármelyik eseményhez**
+(rövid / dupla / hosszú nyomás) adható saját cél, ami felülírja az üzemmódét.
+Alapértelmezésben minden cella az üzemmód célpontját örökli — egyetlen kivétel a
+**Média vezérlő üzemmód Gomb 1, Gomb 2 és Gomb 3 hosszú nyomása**: ezek gépfüggő
+parancsok (`Win+Alt+R`, `Alt+Tab`, `Win+Alt+G`), amiknek telefonon nincs
+értelmük, ezért **gyárilag csak a Windows PC-re** mennek. Az egyedi célok a
+[konfiguráló programban](tools/README.md) állíthatók.
 
 ### Üzemmód váltás
 
