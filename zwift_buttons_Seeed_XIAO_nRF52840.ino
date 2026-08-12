@@ -1143,6 +1143,13 @@ static void cmdSet(const char* args) {
     Serial.println("ERR VALUE");
     return;
   }
+  // A HID jelentés-leíró a 0x0000..0x03FF média (consumer) tartományt hirdeti
+  // meg, az e fölötti kódot a fogadó eszköz eldobná — némán nem működő
+  // beállítás helyett inkább itt utasítjuk vissza.
+  if (t == ACT_CONSUMER && code > ZW_CONSUMER_MAX_USAGE) {
+    Serial.println("ERR VALUE");
+    return;
+  }
   // Értelmetlen ismétlés-kombinációk: a RELEASE/HOLD_MOD bit önmagában
   // (ismétlés nélkül), illetve a HOLD_MOD a RELEASE nélkül csendben elveszne.
   if (rep && !(rep & ZW_REPEAT_ENABLED)) {

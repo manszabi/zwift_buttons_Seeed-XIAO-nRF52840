@@ -47,6 +47,11 @@
 #define ZW_REPEAT_HOLD_MOD 0x04
 #define ZW_REPEAT_MASK (ZW_REPEAT_ENABLED | ZW_REPEAT_RELEASE | ZW_REPEAT_HOLD_MOD)
 
+// A média (consumer) jelentés-leíró — TUD_HID_REPORT_DESC_CONSUMER — a
+// 0x0000..0x03FF usage tartományt hirdeti meg. Az e fölötti kódot a fogadó
+// eszköz eldobja, ezért a beállításnál visszautasítjuk.
+#define ZW_CONSUMER_MAX_USAGE 0x03FF
+
 #define ZW_KEYMAP_MAGIC 0x4B42575AUL  // "ZWBK"
 // 3: a repeat mező bitmaszkká vált. A 2-es mentések betölthetők maradnak, a
 // firmware betöltéskor átalakítja őket (lásd migrateKeymapV2toV3).

@@ -244,6 +244,12 @@ MODIFIER_KEYSYMS = {
 }
 
 # --- Média (consumer) usage kódok ---
+#
+# A HID jelentés-leíró (TUD_HID_REPORT_DESC_CONSUMER) a 0x0000..0x03FF
+# tartományt hirdeti meg, ezért ennél nagyobb kódot hiába küldenénk ki: a
+# fogadó eszköz eldobná.
+CONSUMER_MAX_USAGE = 0x03FF
+
 CONSUMER_KEYS = [
     (0x00CD, "Lejátszás / Szünet"),
     (0x00B0, "Lejátszás"),
@@ -258,6 +264,16 @@ CONSUMER_KEYS = [
     (0x00EA, "Hangerő -"),
     (0x006F, "Fényerő +"),
     (0x0070, "Fényerő -"),
+    # Hangasszisztens.
+    #   0x00CF = „Voice Command" (HID szabvány). A Linux/Android bemeneti réteg
+    #           KEY_VOICECOMMAND-ként veszi át (hid-input.c: case 0x0cf), amit a
+    #           Generic.kl a VOICE_ASSIST gombra képez le -> elindul a Segéd.
+    #           Apple ezt jelöli meg a Siri indítására, de BLE HID-ről iPhone-on
+    #           nem megbízható (lásd a tools/README.md megjegyzését).
+    #   0x01CB = „AL Context-aware Desktop Assistant" -> KEY_ASSISTANT -> ASSIST.
+    (0x00CF, "Hangasszisztens (Siri/Google)"),
+    (0x01CB, "Asszisztens (Android)"),
+    (0x0040, "Menü / Home gomb"),
     (0x0183, "Médialejátszó indítása"),
     (0x018A, "E-mail"),
     (0x0192, "Számológép"),

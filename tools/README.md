@@ -51,7 +51,8 @@ Linuxon `sudo apt install python3-tk`), és a `pyserial` csomag.
      egyszerűen **nyomd le a kívánt kombinációt** (pl. `Ctrl+Shift+F9`).
      A módosítók külön pipákkal is állíthatók, a billentyű listából is
      választható.
-   - **Média billentyű** – play/pause, hangerő, szám váltás stb.
+   - **Média billentyű** – play/pause, hangerő, szám váltás, hangasszisztens
+     (lásd a *Hangasszisztens* fejezetet) stb.
    - **Üzemmód váltás** – a következő üzemmódra léptet.
    - **Zwift nézetváltás** – az 1…9 billentyűket küldi körbe.
    - Hosszú nyomásnál beállítható az **ismétlés**, annak sebessége (ms), és
@@ -110,7 +111,7 @@ A `MAP` / `SET` mezői:
 | `e` – esemény | 0 = rövid, 1 = dupla, 2 = hosszú |
 | `t` – típus | 0 = nincs, 1 = billentyű, 2 = média, 3 = üzemmód váltás, 4 = nézetváltás |
 | `mod` | módosító bitmaszk: 1 = Ctrl, 2 = Shift, 4 = Alt, 8 = Win (jobb oldali: 16/32/64/128) |
-| `code` | HID keycode (típus 1, max. `255`) vagy consumer usage (típus 2, max. `65535`) |
+| `code` | HID keycode (típus 1, max. `255`) vagy consumer usage (típus 2, max. `1023` = `0x03FF`, mert a HID leíró eddig hirdet). Fölötte `ERR VALUE` |
 | `rep` | ismétlés bitmaszk (csak hosszú nyomásnál). Érvényes értékek: `0` = nincs, `1` = nyomva tartva, `3` = külön leütések, `7` = külön leütések + módosító nyomva. Egyéb kombináció `ERR VALUE` |
 | `ms` | ismétlési idő ezredmásodpercben |
 | `tgt` | cél-felülbírálás: `0` = az üzemmód célpontja, egyébként `1`/`2`/`3`. A `SET`-nél elhagyható |
@@ -226,3 +227,50 @@ alapállapotba hozza, de a PC/telefon hozzárendelést **megtartja**.
 Ha valamiért mégis egykapcsolatos működés kell, a `zwift_config.h`-ban állítsd
 a `ZW_MAX_CONNECTIONS` értékét 1-re. A mentett konfiguráció formátuma nem
 változik, így oda-vissza váltható.
+
+## Hangasszisztens (Siri / Google Segéd)
+
+A média billentyűk listájában három olyan kód van, ami a telefon asszisztensét
+célozza:
+
+| Listaelem | Usage | Mit vált ki |
+|-----------|-------|-------------|
+| **Hangasszisztens (Siri/Google)** | `0x00CF` | HID szabvány „Voice Command" |
+| **Asszisztens (Android)** | `0x01CB` | HID „Context-aware Desktop Assistant" |
+| **Menü / Home gomb** | `0x0040` | Home gomb (régebbi iPhone-okon) |
+
+Mivel az asszisztens a telefoné, érdemes a cellánál a **Cél eszköz** →
+*„Csak a telefonra"* beállítást használni, különben a parancs a PC-re is
+kimegy.
+
+### Android
+
+Itt megbízhatóan működik. Az Android bemeneti rétege a `0x00CF`-et
+`KEY_VOICECOMMAND`-ként veszi át (Linux `hid-input.c`), amit az alapértelmezett
+kiosztás (`Generic.kl`) a `VOICE_ASSIST` gombra képez le – ez indítja a Google
+Segédet. A `0x01CB` ugyanígy `KEY_ASSISTANT` → `ASSIST` láncon fut.
+
+**Először a „Hangasszisztens (Siri/Google)" kódot próbáld**; ha a telefonod nem
+reagál rá, állítsd át „Asszisztens (Android)"-ra.
+
+### iPhone
+
+A `0x00CF` az a kód, amit a HID szabvány *„intended to start Siri"*
+megjegyzéssel lát el, **de BLE HID eszközről nem megbízható**. Az Apple
+fejlesztői fórumán több bejelentés szerint sem indul el tőle a Siri, és felmerül,
+hogy ehhez MFi tanúsítvány kellene. Nálam nincs iPhone a teszteléshez, ezért
+ezt **nem tudom garantálni** – érdemes egyszerűen kipróbálni.
+
+Ha nem megy, ezek a kerülő utak maradnak:
+
+- **Home gomb nyomva tartása.** iOS-en a `0x0040` (Menü) és a billentyűzet
+  `Esc` gombja a Home gombként viselkedik; **nyomva tartva** a Siri jön elő.
+  Ez viszont csak fizikai Home gombos iPhone-okon működik, a Face ID-s
+  modelleken (iPhone X-től) nem.
+- **Nyomva tartáshoz** a hosszú nyomásnál kapcsold be az ismétlést
+  **„Nyomva tartva"** módban (`rep = 1`, a *„Külön leütésekként"* pipa
+  kikapcsolva). Enélkül a firmware 100 ms után felengedi a billentyűt, ami
+  rövid egy nyomva tartáshoz.
+- **Kimondott parancs helyett Parancsikon:** iPhone-on a „Keresés" média kód
+  (`0x0221`) a Spotlightot nyitja meg, ahonnan egy Parancsikon a nevének első
+  betűivel indítható.

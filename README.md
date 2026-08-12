@@ -123,6 +123,13 @@ Az üzemmód automatikusan mentődik a belső fájlrendszerbe, így újraindít�
 | **Gomb 4** | 🔇 Némítás | ⚙️ Üzemmód váltás | 🔉 Hangerő csökkentés (ismétlődő) |
 | **Gomb 5** | ⚙️ Beállítások megnyitás | 1-9 nézet váltás (ciklikus) | 🔊 Hangerő növelés (ismétlődő) |
 
+> 🎙️ **Hangasszisztens:** a média billentyűk között választható a
+> *Hangasszisztens (Siri/Google)* és az *Asszisztens (Android)* kód is, így
+> bármelyik gombra rátehető a telefon asszisztensének indítása. Androidon
+> megbízhatóan működik; iPhone-on a Siri indítása BLE HID-ről nem garantált —
+> a részleteket és a kerülő utakat lásd a
+> [konfiguráló program leírásában](tools/README.md#hangasszisztens-siri--google-segéd).
+
 ---
 
 ## ⚙️ Gomb-kiosztás testreszabása

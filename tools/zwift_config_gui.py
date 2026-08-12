@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from hid_tables import (  # noqa: E402
     ACT_CONSUMER, ACT_KEY, ACT_MODE_NEXT, ACT_NONE, ACT_TYPE_COUNT, ACT_VIEW_CYCLE,
-    CONSUMER_KEYS, DEFAULT_TARGETS, EVENT_KEYS, EVENT_NAMES, EV_LONG,
+    CONSUMER_KEYS, CONSUMER_MAX_USAGE, DEFAULT_TARGETS, EVENT_KEYS, EVENT_NAMES, EV_LONG,
     KEY_CHOICES, KEY_NAMES, MODE_NAMES, MODIFIERS, MODIFIER_KEYSYMS,
     REPEAT_ENABLED, REPEAT_HOLD_MOD, REPEAT_MASK, REPEAT_RELEASE,
     SLOT_NAMES, TARGET_ALL, TARGET_CHOICES, TARGET_INHERIT, consumer_label,
@@ -155,8 +155,12 @@ def validate_config(keymap, targets):
                     problems.append(f"{where}: érvénytelen módosító ({a.modifier})")
                 if a.type == ACT_KEY and not 0 <= a.code <= 0xFF:
                     problems.append(f"{where}: a billentyűkód nem fér el egy bájton ({a.code})")
-                if a.type == ACT_CONSUMER and not 0 <= a.code <= 0xFFFF:
-                    problems.append(f"{where}: érvénytelen média kód ({a.code})")
+                # A HID leíró a 0x0000..0x03FF tartományt hirdeti meg; az e
+                # fölötti kódot a fogadó eszköz eldobná, ezért nem küldjük ki.
+                if a.type == ACT_CONSUMER and not 0 <= a.code <= CONSUMER_MAX_USAGE:
+                    problems.append(
+                        f"{where}: a média kód a HID tartományon kívül esik "
+                        f"(0x{a.code:04X} > 0x{CONSUMER_MAX_USAGE:04X})")
                 if not 0 <= a.repeat <= REPEAT_MASK:
                     problems.append(f"{where}: érvénytelen ismétlés ({a.repeat})")
                 elif a.repeat and not a.repeat & REPEAT_ENABLED:
