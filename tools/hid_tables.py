@@ -41,6 +41,16 @@ TARGET_CHOICES = [
 DEFAULT_TARGETS = [TARGET_PC, TARGET_PC, TARGET_ALL]
 
 
+# --- Ismétlés bitjei (egyeznek a firmware ZW_REPEAT_* értékeivel) ---
+#
+# A HID billentyűzet-jelentés a billentyű ÁLLAPOTÁT írja le, nem egy leütést:
+# felengedés nélkül ismételve a host végig lenyomva tartottnak látja, és a
+# saját sebességével pörgeti – a beállított ismétlési idő így nem érvényesül.
+REPEAT_ENABLED = 0x01
+REPEAT_RELEASE = 0x02
+REPEAT_MASK = REPEAT_ENABLED | REPEAT_RELEASE
+
+
 # A műveletenkénti felülbírálás választéka (0 = az üzemmód célpontja).
 TARGET_INHERIT = 0
 

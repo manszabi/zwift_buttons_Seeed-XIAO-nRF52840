@@ -468,6 +468,10 @@ void loadDefaultKeymap() {
   keymap.modeTarget[1] = ZW_TARGET_PC;   // Verseny / edzés
   keymap.modeTarget[2] = ZW_TARGET_ALL;  // Média vezérlő
 
+  // Az ismétlődő műveletek gyárilag külön leütéseket küldenek, hogy a
+  // beállított ismétlési idő tényleg érvényesüljön.
+  const uint8_t REPEAT_TAPS = ZW_REPEAT_ENABLED | ZW_REPEAT_RELEASE;
+
   const uint8_t MOD_GUI_ALT = KEYBOARD_MODIFIER_LEFTGUI | KEYBOARD_MODIFIER_LEFTALT;
 
   // --- Normál üzemmód (Zwift) ---
@@ -485,7 +489,7 @@ void loadDefaultKeymap() {
 
   setAction(0, 3, EV_CLICK, ACT_KEY, 0, HID_KEY_ARROW_DOWN, 0, 0);
   setAction(0, 3, EV_DOUBLE, ACT_MODE_NEXT, 0, 0, 0, 0);
-  setAction(0, 3, EV_LONG, ACT_KEY, 0, HID_KEY_ARROW_DOWN, 1, 30);
+  setAction(0, 3, EV_LONG, ACT_KEY, 0, HID_KEY_ARROW_DOWN, REPEAT_TAPS, 30);
 
   setAction(0, 4, EV_CLICK, ACT_KEY, 0, HID_KEY_ARROW_UP, 0, 0);
   setAction(0, 4, EV_DOUBLE, ACT_VIEW_CYCLE, 0, 0, 0, 0);
@@ -506,7 +510,7 @@ void loadDefaultKeymap() {
 
   setAction(1, 3, EV_CLICK, ACT_KEY, 0, HID_KEY_G, 0, 0);
   setAction(1, 3, EV_DOUBLE, ACT_MODE_NEXT, 0, 0, 0, 0);
-  setAction(1, 3, EV_LONG, ACT_KEY, 0, HID_KEY_ARROW_DOWN, 1, 70);
+  setAction(1, 3, EV_LONG, ACT_KEY, 0, HID_KEY_ARROW_DOWN, REPEAT_TAPS, 70);
 
   setAction(1, 4, EV_CLICK, ACT_KEY, 0, HID_KEY_E, 0, 0);
   setAction(1, 4, EV_DOUBLE, ACT_VIEW_CYCLE, 0, 0, 0, 0);
@@ -527,11 +531,11 @@ void loadDefaultKeymap() {
 
   setAction(2, 3, EV_CLICK, ACT_CONSUMER, 0, HID_USAGE_CONSUMER_MUTE, 0, 0);
   setAction(2, 3, EV_DOUBLE, ACT_MODE_NEXT, 0, 0, 0, 0);
-  setAction(2, 3, EV_LONG, ACT_CONSUMER, 0, HID_USAGE_CONSUMER_VOLUME_DECREMENT, 1, 70);
+  setAction(2, 3, EV_LONG, ACT_CONSUMER, 0, HID_USAGE_CONSUMER_VOLUME_DECREMENT, REPEAT_TAPS, 70);
 
   setAction(2, 4, EV_CLICK, ACT_CONSUMER, 0, HID_USAGE_CONSUMER_AL_CONSUMER_CONTROL_CONFIGURATION, 0, 0);
   setAction(2, 4, EV_DOUBLE, ACT_VIEW_CYCLE, 0, 0, 0, 0);
-  setAction(2, 4, EV_LONG, ACT_CONSUMER, 0, HID_USAGE_CONSUMER_VOLUME_INCREMENT, 1, 70);
+  setAction(2, 4, EV_LONG, ACT_CONSUMER, 0, HID_USAGE_CONSUMER_VOLUME_INCREMENT, REPEAT_TAPS, 70);
 }
 
 static uint32_t zwCrc32(const uint8_t* data, size_t len) {
@@ -776,13 +780,23 @@ static void sendRepeat(const KeyAction& a) {
   }
   pressedTargetCount = n;
   repeatSentConsumer = (a.type == ACT_CONSUMER);
+
+  if (a.repeat & ZW_REPEAT_RELEASE) {
+    // Külön leütésekként küldjük: a HID jelentés a billentyű ÁLLAPOTÁT írja le,
+    // ezért felengedés nélkül a host végig lenyomva tartottnak látja, és a saját
+    // ismétlési sebességével pörgeti — az ismétlési idő így nem érvényesülne.
+    delay(5);
+    releasePressedKeys(!repeatSentConsumer, repeatSentConsumer);
+    pressedTargetCount = 0;
+  }
+
   hasKeyPressed = false;
   hasConsumerKeyPressed = false;
   duringLongpress = true;
 }
 
 static bool isRepeating(const KeyAction& a) {
-  return a.repeat && (a.type == ACT_KEY || a.type == ACT_CONSUMER);
+  return (a.repeat & ZW_REPEAT_ENABLED) && (a.type == ACT_KEY || a.type == ACT_CONSUMER);
 }
 
 // Folyamatban lévő ismétlés lezárása. Mindkét jelzőt beállítjuk, hogy a
@@ -796,6 +810,9 @@ static void finishRepeat() {
   repeatButton = -1;
   repeatDue = false;
   duringLongpress = false;
+  // ZW_REPEAT_RELEASE esetén minden ismétlés után már felengedtünk, tehát
+  // nincs mit felengedni; egyébként a főciklus küldi ki a felengedést.
+  if (pressedTargetCount == 0) return;
   if (repeatSentConsumer) {
     hasConsumerKeyPressed = true;
   } else {
@@ -1073,7 +1090,8 @@ static void cmdSet(const char* args) {
     Serial.println("ERR RANGE");
     return;
   }
-  if (t >= ACT_TYPE_COUNT || mod > 0xFF || code > 0xFFFF || rep > 1 || ms > 0xFFFF) {
+  if (t >= ACT_TYPE_COUNT || mod > 0xFF || code > 0xFFFF
+      || rep > ZW_REPEAT_MASK || ms > 0xFFFF) {
     Serial.println("ERR VALUE");
     return;
   }

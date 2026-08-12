@@ -105,7 +105,7 @@
             "type": 1,
             "modifier": 0,
             "code": 81,
-            "repeat": 1,
+            "repeat": 3,
             "repeat_ms": 30,
             "target": 0
           }
@@ -241,7 +241,7 @@
             "type": 1,
             "modifier": 0,
             "code": 81,
-            "repeat": 1,
+            "repeat": 3,
             "repeat_ms": 70,
             "target": 0
           }
@@ -377,7 +377,7 @@
             "type": 2,
             "modifier": 0,
             "code": 234,
-            "repeat": 1,
+            "repeat": 3,
             "repeat_ms": 70,
             "target": 0
           }
@@ -403,7 +403,7 @@
             "type": 2,
             "modifier": 0,
             "code": 233,
-            "repeat": 1,
+            "repeat": 3,
             "repeat_ms": 70,
             "target": 0
           }

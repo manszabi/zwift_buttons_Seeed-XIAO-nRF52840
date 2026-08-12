@@ -30,11 +30,22 @@
 #define ZW_TARGET_PHONE (1 << ZW_SLOT_PHONE)  // 0x02
 #define ZW_TARGET_ALL (ZW_TARGET_PC | ZW_TARGET_PHONE)
 
+// A KeyAction.repeat mező bitjei (hosszú nyomás).
+//
+// A HID billentyűzet-jelentés a billentyű ÁLLAPOTÁT írja le, nem egy leütést:
+// felengedés nélkül ismételve a host végig lenyomva tartottnak látja, és a
+// saját ismétlési sebességével pörgeti — a beállított ismétlési idő ilyenkor
+// nem érvényesül. A ZW_REPEAT_RELEASE hatására minden ismétlés külön
+// leütés+felengedés pár lesz, így az ismétlési idő tényleg azt jelenti.
+#define ZW_REPEAT_ENABLED 0x01
+#define ZW_REPEAT_RELEASE 0x02
+#define ZW_REPEAT_MASK (ZW_REPEAT_ENABLED | ZW_REPEAT_RELEASE)
+
 #define ZW_KEYMAP_MAGIC 0x4B42575AUL  // "ZWBK"
 #define ZW_KEYMAP_VERSION 2
 
 // Az eszköz és a Python konfiguráló program közti protokoll verziója.
-#define ZW_PROTO_VERSION 3
+#define ZW_PROTO_VERSION 4
 
 // Üzemmódok. A sorszám egyben a keymap első indexe is.
 // (Azért itt, és nem a .ino-ban: az Arduino a vázlat elejére generálja a
@@ -67,7 +78,9 @@ struct __attribute__((packed)) KeyAction {
   uint8_t type;      // ZwActionType
   uint8_t modifier;  // KEYBOARD_MODIFIER_* bitmaszk (csak ACT_KEY esetén)
   uint16_t code;     // ACT_KEY: HID keycode, ACT_CONSUMER: consumer usage
-  uint8_t repeat;    // csak EV_LONG: 1 = ismétlés nyomva tartás közben
+  // Csak EV_LONG esetén, ZW_REPEAT_* bitmaszk. A 0/1 érték a korábbi
+  // jelentésével egyezik, ezért a régi mentések változatlanul betölthetők.
+  uint8_t repeat;
   // Cél-eszköz felülbírálás: 0 = az üzemmód célpontja érvényes, egyébként
   // ZW_TARGET_* bitmaszk. (Korábban ez a bájt kihasználatlan volt és mindig
   // 0-ra íródott, ezért a régi mentések változtatás nélkül betölthetők.)

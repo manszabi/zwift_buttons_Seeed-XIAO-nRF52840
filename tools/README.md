@@ -54,7 +54,8 @@ Linuxon `sudo apt install python3-tk`), és a `pyserial` csomag.
    - **Média billentyű** – play/pause, hangerő, szám váltás stb.
    - **Üzemmód váltás** – a következő üzemmódra léptet.
    - **Zwift nézetváltás** – az 1…9 billentyűket küldi körbe.
-   - Hosszú nyomásnál beállítható az **ismétlés** és annak sebessége (ms).
+   - Hosszú nyomásnál beállítható az **ismétlés**, annak sebessége (ms), és
+     hogy **külön leütésekként** menjen-e (lásd lentebb).
 5. Minden üzemmód fülén felül állítható a **cél eszköz**: csak a Windows PC,
    csak a telefon, vagy mindkettő.
 6. **Küldés az eszközre** – a kiosztás azonnal érvénybe lép.
@@ -87,7 +88,7 @@ használható – minden parancs `Enter`-rel zárul.
 
 | Parancs | Válasz | Leírás |
 |---------|--------|--------|
-| `PING` | `OK ZWIFT_BUTTONS PROTO=3 MODES=3 BUTTONS=5 EVENTS=3 SLOTS=2 CONNS=2` | Eszköz azonosítás |
+| `PING` | `OK ZWIFT_BUTTONS PROTO=4 MODES=3 BUTTONS=5 EVENTS=3 SLOTS=2 CONNS=2` | Eszköz azonosítás |
 | `GET` | 45 db `MAP …`, 3 db `TARGET …` sor, majd `END` | A teljes konfiguráció lekérése |
 | `SETTARGET <m> <maszk>` | `OK` / `ERR …` | Üzemmód cél-eszköze (1 = PC, 2 = telefon, 3 = mindkettő) |
 | `PEERS` | `SLOT …` / `CONN …` sorok, majd `END` | Fiókok és élő BLE kapcsolatok |
@@ -110,7 +111,7 @@ A `MAP` / `SET` mezői:
 | `t` – típus | 0 = nincs, 1 = billentyű, 2 = média, 3 = üzemmód váltás, 4 = nézetváltás |
 | `mod` | módosító bitmaszk: 1 = Ctrl, 2 = Shift, 4 = Alt, 8 = Win (jobb oldali: 16/32/64/128) |
 | `code` | HID keycode (típus 1, max. `255`) vagy consumer usage (típus 2, max. `65535`) |
-| `rep` | 0/1 – ismétlés nyomva tartás közben (csak hosszú nyomásnál) |
+| `rep` | ismétlés bitmaszk (csak hosszú nyomásnál): `1` = ismétlés be, `2` = felengedés az ismétlések között, `3` = mindkettő |
 | `ms` | ismétlési idő ezredmásodpercben |
 | `tgt` | cél-felülbírálás: `0` = az üzemmód célpontja, egyébként `1`/`2`/`3`. A `SET`-nél elhagyható |
 
@@ -119,6 +120,29 @@ Példa: `SET 0 0 2 1 12 21 0 60` → Normál üzemmód, Gomb 1, hosszú nyomás 
 
 A kiosztás CRC32-vel védve, a `/keymap.bin` fájlban tárolódik. Sérült vagy
 hiányzó fájl esetén a firmware automatikusan a gyári kiosztást használja.
+
+## Ismétlés nyomva tartáskor
+
+A hosszú nyomáshoz beállítható ismétlés kétféleképp működhet:
+
+| Mód | `rep` | Mit lát a számítógép |
+|-----|-------|----------------------|
+| **Külön leütések** *(gyári)* | `3` | Minden ismétlés egy teljes leütés + felengedés. Az ismétlési idő pontosan azt jelenti, amit beállítottál. |
+| **Nyomva tartva** | `1` | A billentyű végig lenyomva marad, és a számítógép a **saját** ismétlési sebességével pörgeti. |
+
+A különbség oka, hogy a HID billentyűzet-jelentés a billentyű **állapotát**
+írja le, nem egy leütést. Felengedés nélkül újraküldve a Windows folyamatosan
+lenyomva tartottnak látja a billentyűt — ilyenkor hiába állítasz be pl. 2000
+ms-ot, a billentyű „beragadtnak" tűnik, és a gép a saját ütemében ismétel.
+
+Ezért a gyári kiosztásban mind a négy ismétlődő művelet (a le nyíl és a
+hangerő gombok) **külön leütésekként** megy ki. A szerkesztő ablakban a
+*„Külön leütésekként"* pipával váltható.
+
+> Ha az eszközön már van mentett kiosztás, az felülírja a gyári beállítást.
+> A régebbi mentésekben `rep = 1` szerepel, vagyis „nyomva tartva" — ilyenkor
+> vagy a szerkesztőben pipáld be a *Külön leütésekként* opciót, vagy nyomj
+> **Gyári alapértelmezés**-t, majd **Mentés az eszköz memóriájába**.
 
 ## Két eszköz egyszerre (PC + telefon)
 
