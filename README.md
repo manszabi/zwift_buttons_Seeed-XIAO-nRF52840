@@ -165,7 +165,7 @@ A következő könyvtárak szükségesek a fordításhoz:
 | `Adafruit_SPIFlash` | SPI Flash kezelés |
 | `Adafruit_LittleFS` / `InternalFileSystem` | Belső fájlrendszer (nRF52 boarddal települ) |
 | `bluefruit` | Adafruit Bluefruit BLE könyvtár (nRF52 boarddal települ) |
-| `OneButton` | Gombkezelés (click, double-click, long press) |
+| `OneButton` | Gombkezelés (click, double-click, long press) – **2.0 vagy újabb** (paraméteres callbackek) |
 | `TickTwo` | Időzített feladatok (watchdog timer) |
 
 ### Board telepítése
@@ -180,8 +180,13 @@ A következő könyvtárak szükségesek a fordításhoz:
 ### Könyvtárak telepítése
 
 Az Arduino IDE **Library Manager**-ében telepítsd:
-- `OneButton` (by Matthias Hertel)
+- `OneButton` (by Matthias Hertel) – **2.0 vagy újabb**
 - `TickTwo`
+
+> A firmware a OneButton paraméteres callbackjeit használja
+> (`attachClick(fn, param)`), amit az 1.x sorozat még nem ismer. A Library
+> Manager alapból a legfrissebbet telepíti, tehát ez csak akkor számít, ha
+> régebbi verziót rögzítettél.
 
 A többi könyvtár a board csomaggal együtt települ.
 

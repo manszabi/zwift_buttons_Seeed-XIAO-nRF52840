@@ -58,6 +58,14 @@ static bool repeatDue = false;         // az első ismétlés azonnal menjen ki
 static bool repeatSentConsumer = false;  // az ismétlés média billentyűt küldött-e
 static unsigned long lastRepeatMillis = 0;
 
+// Az ismétlés leütés-impulzusa. A felengedést nem közvetlenül a leütés után
+// küldjük: egy pár ms-os impulzust a képkockánként mintavételező alkalmazások
+// kihagyhatnak, egy blokkoló delay() pedig az egész főciklust megállítaná.
+static const uint16_t repeatTapMs = 20;  // egy 60 Hz-es mintavétel (16,7 ms) fölött
+static bool repeatTapPending = false;
+static uint8_t repeatTapModifier = 0;  // 0 = teljes felengedés, egyébként nyomva marad
+static unsigned long repeatTapMillis = 0;
+
 // Soros (USB) konfigurációs protokoll
 static char cmdBuf[96];
 static uint8_t cmdLen = 0;
@@ -72,6 +80,12 @@ OneButton button2(BUTTON_PIN[2], true);
 OneButton button3(BUTTON_PIN[3], true);
 OneButton button4(BUTTON_PIN[4], true);
 OneButton button5(BUTTON_PIN[0], true);
+
+// A gombok sorrendje a kiosztás második indexe: Gomb 1..5.
+static OneButton* const buttons[ZW_NUM_BUTTONS] = {
+  &button1, &button2, &button3, &button4, &button5
+};
+
 
 #define WAKEUP_PIN 2
 
@@ -123,40 +137,7 @@ void setup() {
 
   NRF_POWER->DCDCEN = 1;
 
-  // link the button 1 functions.
-  button1.attachClick(click1);
-  button1.attachDoubleClick(doubleclick1);
-  button1.attachLongPressStart(longPressStart1);
-  button1.attachLongPressStop(longPressStop1);
-  button1.attachDuringLongPress(longPress1);
-
-  // link the button 2 functions.
-  button2.attachClick(click2);
-  button2.attachDoubleClick(doubleclick2);
-  button2.attachLongPressStart(longPressStart2);
-  button2.attachLongPressStop(longPressStop2);
-  button2.attachDuringLongPress(longPress2);
-
-  // link the button 3 functions.
-  button3.attachClick(click3);
-  button3.attachDoubleClick(doubleclick3);
-  button3.attachLongPressStart(longPressStart3);
-  button3.attachLongPressStop(longPressStop3);
-  button3.attachDuringLongPress(longPress3);
-
-  // link the button 4 functions.
-  button4.attachClick(click4);
-  button4.attachDoubleClick(doubleclick4);
-  button4.attachLongPressStart(longPressStart4);
-  button4.attachLongPressStop(longPressStop4);
-  button4.attachDuringLongPress(longPress4);
-
-  // link the button 5 functions.
-  button5.attachClick(click5);
-  button5.attachDoubleClick(doubleclick5);
-  button5.attachLongPressStart(longPressStart5);
-  button5.attachLongPressStop(longPressStop5);
-  button5.attachDuringLongPress(longPress5);
+  attachButtonCallbacks();
 
   for (uint8_t i = 0; i < ZW_MAX_CONNECTIONS; i++) {
     connHandles[i] = BLE_CONN_HANDLE_INVALID;
@@ -183,27 +164,12 @@ void setup() {
 void loop() {
 
   uzemmod elozoUzemmod = jelenlegiUzemmod;
-
-  for (int i = 0; i < numOfLeds; i++) {
-    digitalWrite(ledPin[i], HIGH);
-  }
-  switch (jelenlegiUzemmod) {
-    case normalUzemmod:
-      digitalWrite(ledPin[0], LOW);
-      break;
-    case versenyEdzesUzemmod:
-      digitalWrite(ledPin[1], LOW);
-      break;
-    case mediaVezerloUzemmod:
-      digitalWrite(ledPin[2], LOW);
-      break;
-    default:
-      break;
-  }
+  updateLeds();
 
   updateButtons();
   handleSerial();
   pruneLostTargets();
+  updateRepeatTap();
 
   if ((hasKeyPressed || hasConsumerKeyPressed) && keyPressMillis == 0) {
     keyPressMillis = millis();
@@ -394,12 +360,23 @@ void fct_WatchdogReset() {
   watchdogCounter = watchdogMinCounter;
 }
 
+// A LED-eket csak üzemmód-váltáskor írjuk át. Ciklusonként újraírva 50-szer
+// másodpercenként kapcsolgatnánk mindhárom lábat, fölöslegesen.
+void updateLeds() {
+  static int8_t shownMode = -1;
+  if (shownMode == (int8_t)jelenlegiUzemmod) return;
+  shownMode = (int8_t)jelenlegiUzemmod;
+
+  for (int i = 0; i < numOfLeds; i++) {
+    digitalWrite(ledPin[i], HIGH);
+  }
+  if ((uint8_t)jelenlegiUzemmod < (uint8_t)numOfLeds) {
+    digitalWrite(ledPin[(uint8_t)jelenlegiUzemmod], LOW);
+  }
+}
+
 void updateButtons() {
-  button1.tick();
-  button2.tick();
-  button3.tick();
-  button4.tick();
-  button5.tick();
+  for (uint8_t i = 0; i < ZW_NUM_BUTTONS; i++) buttons[i]->tick();
 }
 
 void startAdv(void) {
@@ -541,6 +518,24 @@ void loadDefaultKeymap() {
   setAction(2, 4, EV_LONG, ACT_CONSUMER, 0, HID_USAGE_CONSUMER_VOLUME_INCREMENT, REPEAT_TAPS, 70);
 }
 
+// A 2-es formátumban a repeat mező csak 0/1 lehetett, és az 1 azt jelentette,
+// hogy az ismétlés végig lenyomva tartja a billentyűt — ez a hostnál beragadt
+// billentyűnek látszik, és a beállított ismétlési idő sem érvényesül. A 3-as
+// formátumban ugyanez külön leütéseket jelent, ezért a régi mentéseket
+// betöltéskor átalakítjuk, hogy a javítás oda is eljusson.
+static void migrateKeymapV2toV3() {
+  for (uint8_t m = 0; m < ZW_NUM_MODES; m++) {
+    for (uint8_t b = 0; b < ZW_NUM_BUTTONS; b++) {
+      for (uint8_t e = 0; e < ZW_NUM_EVENTS; e++) {
+        KeyAction& a = keymap.map[m][b][e];
+        if (a.repeat == ZW_REPEAT_ENABLED) a.repeat |= ZW_REPEAT_RELEASE;
+      }
+    }
+  }
+  keymap.version = ZW_KEYMAP_VERSION;
+  Serial.println("keymap: regi (2-es) mentes atalakitva 3-as formatumra");
+}
+
 static uint32_t zwCrc32(const uint8_t* data, size_t len) {
   uint32_t crc = 0xFFFFFFFFUL;
   for (size_t i = 0; i < len; i++) {
@@ -570,7 +565,8 @@ bool loadKeymap() {
     Serial.println("keymap: hibas fajlmeret");
     return false;
   }
-  if (tmp.magic != ZW_KEYMAP_MAGIC || tmp.version != ZW_KEYMAP_VERSION
+  if (tmp.magic != ZW_KEYMAP_MAGIC
+      || tmp.version < ZW_KEYMAP_MIN_VERSION || tmp.version > ZW_KEYMAP_VERSION
       || tmp.entrySize != sizeof(KeyAction)
       || tmp.modes != ZW_NUM_MODES || tmp.buttons != ZW_NUM_BUTTONS
       || tmp.events != ZW_NUM_EVENTS || tmp.slots != ZW_NUM_SLOTS) {
@@ -582,6 +578,7 @@ bool loadKeymap() {
     return false;
   }
   memcpy(&keymap, &tmp, sizeof(keymap));
+  if (tmp.version < 3) migrateKeymapV2toV3();
   Serial.println("keymap: betoltve a flash-bol");
   return true;
 }
@@ -711,6 +708,7 @@ void pruneLostTargets() {
 
   pressedTargetCount = kept;
   if (kept == 0) {
+    repeatTapPending = false;
     hasKeyPressed = false;
     hasConsumerKeyPressed = false;
     duringLongpress = false;
@@ -729,6 +727,30 @@ void releasePressedKeys(bool keyboard, bool consumer) {
 }
 
 // Egyszeri művelet (rövid / dupla / nem ismétlődő hosszú nyomás).
+// Az ismétlés leütés-impulzusának lezárása. Ha van nyomva tartandó módosító,
+// csak magát a billentyűt engedjük fel (Alt+Tab), egyébként teljeset küldünk.
+static void endRepeatTap() {
+  repeatTapPending = false;
+  if (repeatTapModifier) {
+    uint8_t none[6] = { HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE,
+                        HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
+    for (uint8_t i = 0; i < pressedTargetCount; i++) {
+      if (Bluefruit.connected(pressedTargets[i])) {
+        blehid.keyboardReport(pressedTargets[i], repeatTapModifier, none);
+      }
+    }
+  } else {
+    releasePressedKeys(!repeatSentConsumer, repeatSentConsumer);
+  }
+}
+
+// A főciklusból hívjuk, hogy az impulzus a gomb-tickektől függetlenül záruljon.
+void updateRepeatTap() {
+  if (repeatTapPending && (millis() - repeatTapMillis) >= repeatTapMs) {
+    endRepeatTap();
+  }
+}
+
 static void fireAction(uint8_t btn, uint8_t evt) {
   const KeyAction& a = currentAction(btn, evt);
   switch (a.type) {
@@ -788,26 +810,14 @@ static void sendRepeat(const KeyAction& a) {
     // Külön leütésekként küldjük: a HID jelentés a billentyű ÁLLAPOTÁT írja le,
     // ezért felengedés nélkül a host végig lenyomva tartottnak látja, és a saját
     // ismétlési sebességével pörgeti — az ismétlési idő így nem érvényesülne.
-    delay(5);
-
-    const bool holdMod = (a.repeat & ZW_REPEAT_HOLD_MOD)
-                         && a.type == ACT_KEY && a.modifier != 0;
-    if (holdMod) {
-      // Csak a billentyűt engedjük fel, a módosító nyomva marad. Az Alt+Tab
-      // ablakváltás csak így lépked tovább a második ablakon túl is; a
-      // módosítót a gomb elengedésekor a főciklus engedi fel.
-      uint8_t none[6] = { HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE,
-                          HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
-      for (uint8_t i = 0; i < pressedTargetCount; i++) {
-        if (Bluefruit.connected(pressedTargets[i])) {
-          blehid.keyboardReport(pressedTargets[i], a.modifier, none);
-        }
-      }
-      // pressedTargets marad: a módosító még lenyomva van, fel kell engedni.
-    } else {
-      releasePressedKeys(!repeatSentConsumer, repeatSentConsumer);
-      pressedTargetCount = 0;
-    }
+    // A felengedés repeatTapMs múlva megy ki (updateRepeatTap), nem azonnal.
+    // A pressedTargets szándékosan megmarad: a gomb elengedésekor küldött záró
+    // felengedés így akkor is helyreállítja az állapotot, ha egy közbenső
+    // felengedés-értesítés elveszne.
+    repeatTapPending = true;
+    repeatTapMillis = millis();
+    repeatTapModifier = ((a.repeat & ZW_REPEAT_HOLD_MOD) && a.type == ACT_KEY)
+                          ? a.modifier : 0;
   }
 
   hasKeyPressed = false;
@@ -827,11 +837,12 @@ static bool isRepeating(const KeyAction& a) {
 // ténylegesen küldött, hogy ne menjen fölösleges felengedés a hostnak (és ne
 // tiltsuk le indokolatlanul a többi gombot a késleltetés idejére).
 static void finishRepeat() {
+  if (repeatTapPending) endRepeatTap();   // a függő impulzust azonnal lezárjuk
   repeatButton = -1;
   repeatDue = false;
   duringLongpress = false;
-  // ZW_REPEAT_RELEASE esetén minden ismétlés után már felengedtünk, tehát
-  // nincs mit felengedni; egyébként a főciklus küldi ki a felengedést.
+  // Záró felengedés akkor is, ha az ismétlések között már engedtünk fel: ez a
+  // biztonsági háló arra az esetre, ha egy közbenső felengedés elveszne.
   if (pressedTargetCount == 0) return;
   if (repeatSentConsumer) {
     hasConsumerKeyPressed = true;
@@ -844,6 +855,7 @@ static void finishRepeat() {
 // felengedést a főciklusra: az új ismétlés még előtte felülírná a célpont-
 // listát, és a régi célponton beragadna a billentyű.
 static void abortRepeat() {
+  repeatTapPending = false;
   releasePressedKeys(!repeatSentConsumer, repeatSentConsumer);
   pressedTargetCount = 0;
   repeatButton = -1;
@@ -887,9 +899,27 @@ static void onLongStart(uint8_t btn) {
 static void onLongDuring(uint8_t btn) {
   fct_WatchdogReset();
   if (repeatButton != (int8_t)btn) return;
+
+  // Az üzemmód menet közben is megváltozhat (másik gomb dupla kattintása vagy
+  // a MODE parancs). Ilyenkor a currentAction() már MÁS műveletet ad vissza;
+  // ha az nem ismétlődő, az ismétlést le kell zárni — különben a nulla
+  // ismétlési idő miatt fékezetlenül szórnánk ki a billentyűt.
   const KeyAction& a = currentAction(btn, EV_LONG);
+  if (!isRepeating(a)) {
+    abortRepeat();
+    return;
+  }
+
+  // Külön leütéseknél a leütés-impulzusnak be kell férnie két ismétlés közé.
+  uint16_t interval = a.repeatMs;
+  if (a.repeat & ZW_REPEAT_RELEASE) {
+    if (interval < repeatTapMs + 10) interval = repeatTapMs + 10;
+  } else if (interval == 0) {
+    interval = 60;
+  }
+
   unsigned long now = millis();
-  if (!repeatDue && (now - lastRepeatMillis) < a.repeatMs) return;
+  if (!repeatDue && (now - lastRepeatMillis) < interval) return;
   repeatDue = false;
   lastRepeatMillis = now;
   sendRepeat(a);
@@ -903,47 +933,38 @@ static void onLongStop(uint8_t btn) {
   finishRepeat();
 }
 
-// A OneButton csak paraméter nélküli függvényeket fogad, ezért gombonként
-// külön kis becsomagoló függvények hívják a közös kezelőket.
-void click1() { onClick(0); }
-void doubleclick1() { onDoubleClick(0); }
-void longPressStart1() { onLongStart(0); }
-void longPress1() { onLongDuring(0); }
-void longPressStop1() { onLongStop(0); }
+// A OneButton 2.x paraméteres callbackeket is fogad, így gombonként nem kell
+// külön becsomagoló függvény: a gomb sorszámát adjuk át a közös kezelőknek.
+// (Ehhez legalább OneButton 2.0 kell — lásd a README könyvtár-táblázatát.)
+void cbClick(void* p) { onClick((uint8_t)(uintptr_t)p); }
+void cbDoubleClick(void* p) { onDoubleClick((uint8_t)(uintptr_t)p); }
+void cbLongStart(void* p) { onLongStart((uint8_t)(uintptr_t)p); }
+void cbLongDuring(void* p) { onLongDuring((uint8_t)(uintptr_t)p); }
+void cbLongStop(void* p) { onLongStop((uint8_t)(uintptr_t)p); }
 
-void click2() { onClick(1); }
-void doubleclick2() { onDoubleClick(1); }
-void longPressStart2() { onLongStart(1); }
-void longPress2() { onLongDuring(1); }
-void longPressStop2() { onLongStop(1); }
-
-void click3() { onClick(2); }
-void doubleclick3() { onDoubleClick(2); }
-void longPressStart3() { onLongStart(2); }
-void longPress3() { onLongDuring(2); }
-void longPressStop3() { onLongStop(2); }
-
-void click4() { onClick(3); }
-void doubleclick4() { onDoubleClick(3); }
-void longPressStart4() { onLongStart(3); }
-void longPress4() { onLongDuring(3); }
-void longPressStop4() { onLongStop(3); }
-
-void click5() { onClick(4); }
-void doubleclick5() { onDoubleClick(4); }
-void longPressStart5() { onLongStart(4); }
-void longPress5() { onLongDuring(4); }
-void longPressStop5() { onLongStop(4); }
-
+void attachButtonCallbacks() {
+  for (uint8_t i = 0; i < ZW_NUM_BUTTONS; i++) {
+    void* idx = (void*)(uintptr_t)i;
+    buttons[i]->attachClick(cbClick, idx);
+    buttons[i]->attachDoubleClick(cbDoubleClick, idx);
+    buttons[i]->attachLongPressStart(cbLongStart, idx);
+    buttons[i]->attachDuringLongPress(cbLongDuring, idx);
+    buttons[i]->attachLongPressStop(cbLongStop, idx);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Soros (USB) konfigurációs protokoll
 //
 // Sor alapú, ASCII. Minden parancs '\n'-nel zárul, minden válasz egy sor.
 //
-//   PING                                        -> OK ZWIFT_BUTTONS PROTO=1 ...
+//   PING                                        -> OK ZWIFT_BUTTONS PROTO=5 ...
 //   GET                                         -> MAP ... (45 sor) + END
 //   SET <m> <b> <e> <t> <mod> <code> <rep> <ms> [<tgt>] -> OK
+//
+//   rep: ismétlés bitmaszk (csak hosszú nyomásnál) — 1 = ismétlés be,
+//        2 = felengedés az ismétlések között, 4 = a módosító nyomva marad
+//        (csak a 2 mellett). Használható értékek: 0, 1, 3, 7.
 //   SAVE                                        -> OK SAVED | ERR SAVE
 //   LOAD                                        -> OK LOADED | ERR LOAD
 //   DEFAULTS                                    -> OK DEFAULTS
@@ -1120,6 +1141,16 @@ static void cmdSet(const char* args) {
     Serial.println("ERR VALUE");
     return;
   }
+  // Értelmetlen ismétlés-kombinációk: a RELEASE/HOLD_MOD bit önmagában
+  // (ismétlés nélkül), illetve a HOLD_MOD a RELEASE nélkül csendben elveszne.
+  if (rep && !(rep & ZW_REPEAT_ENABLED)) {
+    Serial.println("ERR VALUE");
+    return;
+  }
+  if ((rep & ZW_REPEAT_HOLD_MOD) && !(rep & ZW_REPEAT_RELEASE)) {
+    Serial.println("ERR VALUE");
+    return;
+  }
   if (tgt > ZW_TARGET_ALL) {
     Serial.println("ERR VALUE");
     return;
@@ -1146,6 +1177,10 @@ static void cmdMode(const char* args) {
 
 static void processCommand(char* cmd) {
   fct_WatchdogReset();
+
+  // Vezető szóközök átugrása: terminálból könnyű elgépelni, és enélkül a
+  // parancs üresnek látszana, amire némán nem válaszolnánk semmit.
+  while (*cmd == ' ' || *cmd == '\t') cmd++;
 
   // parancs és argumentumok szétválasztása
   char* args = cmd;

@@ -43,7 +43,7 @@ NUM_MODES = 3
 NUM_BUTTONS = 5
 NUM_EVENTS = 3
 FILE_FORMAT = "zwift-buttons-keymap"
-FILE_VERSION = 3
+FILE_VERSION = 4
 NUM_SLOTS = 2
 # Ez a program legalább ilyen protokoll-verziójú firmware-t igényel.
 MIN_PROTO = 5
@@ -159,6 +159,11 @@ def validate_config(keymap, targets):
                     problems.append(f"{where}: érvénytelen média kód ({a.code})")
                 if not 0 <= a.repeat <= REPEAT_MASK:
                     problems.append(f"{where}: érvénytelen ismétlés ({a.repeat})")
+                elif a.repeat and not a.repeat & REPEAT_ENABLED:
+                    problems.append(f"{where}: ismétlés-beállítás ismétlés nélkül ({a.repeat})")
+                elif a.repeat & REPEAT_HOLD_MOD and not a.repeat & REPEAT_RELEASE:
+                    problems.append(
+                        f"{where}: a módosító nyomva tartása csak külön leütésekkel működik")
                 if not 0 <= a.repeat_ms <= 0xFFFF:
                     problems.append(f"{where}: érvénytelen ismétlési idő ({a.repeat_ms})")
                 if a.target and not 1 <= a.target <= TARGET_ALL:
@@ -512,7 +517,7 @@ class ActionDialog(tk.Toplevel):
         ttk.Label(mod_frame, text="Módosítók:").grid(row=0, column=0, sticky="w")
         for i, (bit, name) in enumerate(MODIFIERS):
             ttk.Checkbutton(mod_frame, text=name, variable=self.mod_vars[bit],
-                            command=self._update_preview).grid(
+                            command=self._refresh_state).grid(
                 row=1 + i // 4, column=i % 4, sticky="w", padx=(0, 10))
 
         # Média billentyű
@@ -539,11 +544,12 @@ class ActionDialog(tk.Toplevel):
                                            textvariable=self.repeat_ms_var,
                                            command=self._update_preview)
             self.repeat_spin.grid(row=1, column=1, sticky="w", padx=(8, 0), pady=(4, 0))
-            ttk.Checkbutton(self.repeat_box,
-                            text="Külön leütésekként (felengedés minden ismétlés után)",
-                            variable=self.release_var,
-                            command=self._refresh_state).grid(
-                row=2, column=0, columnspan=2, sticky="w", pady=(6, 0))
+            self.release_check = ttk.Checkbutton(
+                self.repeat_box,
+                text="Külön leütésekként (felengedés minden ismétlés után)",
+                variable=self.release_var, command=self._refresh_state)
+            self.release_check.grid(row=2, column=0, columnspan=2,
+                                    sticky="w", pady=(6, 0))
             self.holdmod_check = ttk.Checkbutton(
                 self.repeat_box,
                 text="A módosító (Alt, Ctrl, …) maradjon nyomva – Alt+Tab-hoz kell",
@@ -697,14 +703,20 @@ class ActionDialog(tk.Toplevel):
             if not can_repeat:
                 self.repeat_var.set(0)
             self._set_widget_state(self.repeat_box, "normal" if can_repeat else "disabled")
-            if can_repeat and not self.repeat_var.get():
-                # Ismétlés nélkül az ismétlési idő nem értelmes.
+            repeating = can_repeat and bool(self.repeat_var.get())
+            if not repeating:
+                # Ismétlés nélkül sem az idő, sem a leütés-mód nem értelmes.
                 self.repeat_spin.configure(state="disabled")
-            # A módosító nyomva tartása csak külön leütések mellett értelmes.
-            if can_repeat and self.repeat_var.get() and self.release_var.get():
-                self.holdmod_check.state(["!disabled"])
-            else:
-                self.holdmod_check.state(["disabled"])
+            self.release_check.state(["!disabled"] if repeating else ["disabled"])
+
+            # A módosító nyomva tartását a firmware csak billentyű-műveletnél és
+            # csak külön leütések mellett veszi figyelembe; máshol félrevezető
+            # lenne felkínálni, mert a felirat olyat ígérne, ami nem történik meg.
+            hold_ok = (repeating and bool(self.release_var.get())
+                       and atype == ACT_KEY and self._current_modifier() != 0)
+            self.holdmod_check.state(["!disabled"] if hold_ok else ["disabled"])
+            if not hold_ok:
+                self.holdmod_var.set(0)
 
         self._update_preview()
 
@@ -1265,10 +1277,12 @@ class App(ttk.Frame):
             self.master.update_idletasks()
 
     def on_close(self):
-        if self.dirty and self.link.connected:
+        # A kapcsolat meglététől függetlenül kérdezünk: eszköz nélkül szerkesztve
+        # is elveszne a munka, ha nem mentették fájlba.
+        if self.dirty:
             if not messagebox.askokcancel(
                     "Kilépés",
-                    "Vannak el nem küldött módosítások. Biztosan kilépsz?"):
+                    "Vannak el nem mentett módosítások. Biztosan kilépsz?"):
                 return
         self.link.close()
         self.master.destroy()

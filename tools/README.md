@@ -111,7 +111,7 @@ A `MAP` / `SET` mezői:
 | `t` – típus | 0 = nincs, 1 = billentyű, 2 = média, 3 = üzemmód váltás, 4 = nézetváltás |
 | `mod` | módosító bitmaszk: 1 = Ctrl, 2 = Shift, 4 = Alt, 8 = Win (jobb oldali: 16/32/64/128) |
 | `code` | HID keycode (típus 1, max. `255`) vagy consumer usage (típus 2, max. `65535`) |
-| `rep` | ismétlés bitmaszk (csak hosszú nyomásnál): `1` = ismétlés be, `2` = felengedés az ismétlések között, `4` = a módosító nyomva marad (csak `2` mellett). Pl. `3` = külön leütések, `7` = Alt+Tab-mód |
+| `rep` | ismétlés bitmaszk (csak hosszú nyomásnál). Érvényes értékek: `0` = nincs, `1` = nyomva tartva, `3` = külön leütések, `7` = külön leütések + módosító nyomva. Egyéb kombináció `ERR VALUE` |
 | `ms` | ismétlési idő ezredmásodpercben |
 | `tgt` | cél-felülbírálás: `0` = az üzemmód célpontja, egyébként `1`/`2`/`3`. A `SET`-nél elhagyható |
 
@@ -128,7 +128,7 @@ A hosszú nyomáshoz beállítható ismétlés kétféleképp működhet:
 | Mód | `rep` | Mit lát a számítógép |
 |-----|-------|----------------------|
 | **Külön leütések** *(gyári)* | `3` | Minden ismétlés egy teljes leütés + felengedés. Az ismétlési idő pontosan azt jelenti, amit beállítottál. |
-| **Külön leütések, módosító nyomva** | `7` | Mint fent, de az `Alt` / `Ctrl` / `Win` végig nyomva marad, és csak a gomb elengedésekor jön fel. |
+| **Külön leütések, módosító nyomva** | `7` | Mint fent, de az `Alt` / `Ctrl` / `Win` végig nyomva marad, és csak a gomb elengedésekor jön fel. Csak módosítós billentyűnél. |
 | **Nyomva tartva** | `1` | A billentyű végig lenyomva marad, és a számítógép a **saját** ismétlési sebességével pörgeti. |
 
 A különbség oka, hogy a HID billentyűzet-jelentés a billentyű **állapotát**
@@ -154,10 +154,12 @@ elengedésekor pedig az `Alt` felenged, és a kiválasztott ablak kerül előté
 A szerkesztő ablakban ez a *„A módosító (Alt, Ctrl, …) maradjon nyomva"*
 pipával kapcsolható; csak a *Külön leütésekként* mellett választható.
 
-> Ha az eszközön már van mentett kiosztás, az felülírja a gyári beállítást.
-> A régebbi mentésekben `rep = 1` szerepel, vagyis „nyomva tartva" — ilyenkor
-> vagy a szerkesztőben pipáld be a *Külön leütésekként* opciót, vagy nyomj
-> **Gyári alapértelmezés**-t, majd **Mentés az eszköz memóriájába**.
+> **A régi mentések automatikusan átalakulnak.** A firmware a betöltéskor a
+> korábbi (2-es formátumú) kiosztásokban a „nyomva tartva" ismétlést átállítja
+> külön leütésekre, tehát a javítás akkor is érvényre jut, ha már van mentett
+> konfigurációd — nem kell kézzel visszaállítanod semmit. A gyári célpontok és
+> az Alt+Tab módosító-beállítás viszont a te választásod marad; ha azokat is
+> szeretnéd, nyomj **Gyári alapértelmezés**-t, majd mentsd az eszközre.
 
 ## Két eszköz egyszerre (PC + telefon)
 
@@ -203,7 +205,7 @@ választható). A cella felirata `→ PC` / `→ telefon` utótaggal jelzi, ha
 felülbírálás van érvényben.
 
 A firmware ezt általánosan támogatja (a `SET` 9. mezője bármelyik cellához),
-a felület viszont szándékosan csak ezen a két helyen kínálja fel.
+a felület viszont szándékosan csak ezen a három helyen kínálja fel.
 
 **Amíg egyik eszköz sincs hozzárendelve, minden gombnyomás mindkét
 kapcsolatra kimegy** — így az eszköz párosítás után azonnal használható.

@@ -48,7 +48,10 @@
 #define ZW_REPEAT_MASK (ZW_REPEAT_ENABLED | ZW_REPEAT_RELEASE | ZW_REPEAT_HOLD_MOD)
 
 #define ZW_KEYMAP_MAGIC 0x4B42575AUL  // "ZWBK"
-#define ZW_KEYMAP_VERSION 2
+// 3: a repeat mező bitmaszkká vált. A 2-es mentések betölthetők maradnak, a
+// firmware betöltéskor átalakítja őket (lásd migrateKeymapV2toV3).
+#define ZW_KEYMAP_VERSION 3
+#define ZW_KEYMAP_MIN_VERSION 2
 
 // Az eszköz és a Python konfiguráló program közti protokoll verziója.
 #define ZW_PROTO_VERSION 5

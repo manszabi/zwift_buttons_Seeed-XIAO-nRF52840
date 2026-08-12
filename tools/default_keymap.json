@@ -1,6 +1,6 @@
 {
   "format": "zwift-buttons-keymap",
-  "version": 3,
+  "version": 4,
   "modes": [
     {
       "name": "Normál (Zwift)",
