@@ -13,7 +13,7 @@ Az eszköz 5 fizikai gombbal rendelkezik, és 3 különböző üzemmódot támog
 - **5 fizikai gomb** – Mindegyik gombhoz 3 művelet tartozik: rövid nyomás (click), dupla kattintás (double-click), hosszú nyomás (long press)
 - **3 üzemmód** – Normál (Zwift), Verseny/Edzés, Média vezérlő
 - **Szabadon konfigurálható kiosztás** – Mind a 45 billentyű-kombináció (3 üzemmód × 5 gomb × 3 esemény) átállítható a mellékelt [Python konfiguráló programmal](tools/README.md), USB-n keresztül, újraprogramozás nélkül
-- **Állítható ismétlés** – Nyomva tartásnál beállítható az ismétlés sebessége, és hogy külön leütésekként menjen-e (különben a számítógép a saját ütemében ismétel)
+- **Állítható ismétlés** – Nyomva tartásnál beállítható az ismétlés sebessége, hogy külön leütésekként menjen-e (különben a számítógép a saját ütemében ismétel), és hogy a módosító nyomva maradjon-e (Alt+Tab ablakváltáshoz)
 - **Üzemmód-mentés** – Az aktuális üzemmód a belső flash-memóriába mentődik, újraindítás után is megmarad
 - **Kiosztás-mentés** – A gomb-kiosztás is a belső flash-memóriába kerül (CRC-vel védve), újraindítás után is megmarad
 - **LED visszajelzés** – 3 szín (piros, kék, zöld) jelzi az aktuális üzemmódot
@@ -115,7 +115,7 @@ Az üzemmód automatikusan mentődik a belső fájlrendszerbe, így újraindít�
 | Gomb | Kattintás (Click) | Dupla kattintás (Double-click) | Hosszú nyomás (Long press) |
 |------|-------------------|-------------------------------|---------------------------|
 | **Gomb 1** | ⏮ Előző szám | F9 | GUI+ALT+R *(csak PC)* |
-| **Gomb 2** | ⏯ Play/Pause | Escape | ALT+Tab (ablakváltás) *(csak PC)* |
+| **Gomb 2** | ⏯ Play/Pause | Escape | ALT+Tab (ablakváltó, lépked amíg nyomva tartod) *(csak PC)* |
 | **Gomb 3** | ⏭ Következő szám | F10 | GUI+ALT+G *(csak PC)* |
 | **Gomb 4** | 🔇 Némítás | ⚙️ Üzemmód váltás | 🔉 Hangerő csökkentés (ismétlődő) |
 | **Gomb 5** | ⚙️ Beállítások megnyitás | 1-9 nézet váltás (ciklikus) | 🔊 Hangerő növelés (ismétlődő) |

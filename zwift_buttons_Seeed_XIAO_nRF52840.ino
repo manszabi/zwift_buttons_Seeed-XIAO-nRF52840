@@ -523,7 +523,10 @@ void loadDefaultKeymap() {
 
   setAction(2, 1, EV_CLICK, ACT_CONSUMER, 0, HID_USAGE_CONSUMER_PLAY_PAUSE, 0, 0);
   setAction(2, 1, EV_DOUBLE, ACT_KEY, 0, HID_KEY_ESCAPE, 0, 0);
-  setAction(2, 1, EV_LONG, ACT_KEY, KEYBOARD_MODIFIER_LEFTALT, HID_KEY_TAB, 0, 0, ZW_TARGET_PC);
+  // Alt+Tab: az Alt végig nyomva marad, a Tab ismétlődik — így a Windows
+  // ablakváltója nyitva marad és tovább lépked, nem csak két ablak közt vált.
+  setAction(2, 1, EV_LONG, ACT_KEY, KEYBOARD_MODIFIER_LEFTALT, HID_KEY_TAB,
+            REPEAT_TAPS | ZW_REPEAT_HOLD_MOD, 500, ZW_TARGET_PC);
 
   setAction(2, 2, EV_CLICK, ACT_CONSUMER, 0, HID_USAGE_CONSUMER_SCAN_NEXT, 0, 0);
   setAction(2, 2, EV_DOUBLE, ACT_KEY, 0, HID_KEY_F10, 0, 0);
@@ -786,8 +789,25 @@ static void sendRepeat(const KeyAction& a) {
     // ezért felengedés nélkül a host végig lenyomva tartottnak látja, és a saját
     // ismétlési sebességével pörgeti — az ismétlési idő így nem érvényesülne.
     delay(5);
-    releasePressedKeys(!repeatSentConsumer, repeatSentConsumer);
-    pressedTargetCount = 0;
+
+    const bool holdMod = (a.repeat & ZW_REPEAT_HOLD_MOD)
+                         && a.type == ACT_KEY && a.modifier != 0;
+    if (holdMod) {
+      // Csak a billentyűt engedjük fel, a módosító nyomva marad. Az Alt+Tab
+      // ablakváltás csak így lépked tovább a második ablakon túl is; a
+      // módosítót a gomb elengedésekor a főciklus engedi fel.
+      uint8_t none[6] = { HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE,
+                          HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
+      for (uint8_t i = 0; i < pressedTargetCount; i++) {
+        if (Bluefruit.connected(pressedTargets[i])) {
+          blehid.keyboardReport(pressedTargets[i], a.modifier, none);
+        }
+      }
+      // pressedTargets marad: a módosító még lenyomva van, fel kell engedni.
+    } else {
+      releasePressedKeys(!repeatSentConsumer, repeatSentConsumer);
+      pressedTargetCount = 0;
+    }
   }
 
   hasKeyPressed = false;

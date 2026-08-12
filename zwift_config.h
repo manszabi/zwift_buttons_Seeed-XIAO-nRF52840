@@ -37,15 +37,21 @@
 // saját ismétlési sebességével pörgeti — a beállított ismétlési idő ilyenkor
 // nem érvényesül. A ZW_REPEAT_RELEASE hatására minden ismétlés külön
 // leütés+felengedés pár lesz, így az ismétlési idő tényleg azt jelenti.
+// A ZW_REPEAT_HOLD_MOD csak a ZW_REPEAT_RELEASE mellett értelmes: ilyenkor az
+// ismétlések között csak maga a billentyű engedődik fel, a módosító (Alt, Ctrl,
+// …) végig nyomva marad, és csak a gomb elengedésekor jön fel. Ez kell pl. az
+// Alt+Tab ablakváltáshoz: a Windows csak addig lépked tovább, amíg az Alt
+// nyomva van — különben mindig csak a két legutóbbi ablak között vált.
 #define ZW_REPEAT_ENABLED 0x01
 #define ZW_REPEAT_RELEASE 0x02
-#define ZW_REPEAT_MASK (ZW_REPEAT_ENABLED | ZW_REPEAT_RELEASE)
+#define ZW_REPEAT_HOLD_MOD 0x04
+#define ZW_REPEAT_MASK (ZW_REPEAT_ENABLED | ZW_REPEAT_RELEASE | ZW_REPEAT_HOLD_MOD)
 
 #define ZW_KEYMAP_MAGIC 0x4B42575AUL  // "ZWBK"
 #define ZW_KEYMAP_VERSION 2
 
 // Az eszköz és a Python konfiguráló program közti protokoll verziója.
-#define ZW_PROTO_VERSION 4
+#define ZW_PROTO_VERSION 5
 
 // Üzemmódok. A sorszám egyben a keymap első indexe is.
 // (Azért itt, és nem a .ino-ban: az Arduino a vázlat elejére generálja a

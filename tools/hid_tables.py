@@ -46,9 +46,14 @@ DEFAULT_TARGETS = [TARGET_PC, TARGET_PC, TARGET_ALL]
 # A HID billentyűzet-jelentés a billentyű ÁLLAPOTÁT írja le, nem egy leütést:
 # felengedés nélkül ismételve a host végig lenyomva tartottnak látja, és a
 # saját sebességével pörgeti – a beállított ismétlési idő így nem érvényesül.
+# A REPEAT_HOLD_MOD csak a REPEAT_RELEASE mellett értelmes: ilyenkor az
+# ismétlések között csak a billentyű engedődik fel, a módosító (Alt, Ctrl, …)
+# végig nyomva marad. Ez kell az Alt+Tab ablakváltáshoz: a Windows csak addig
+# lépked tovább, amíg az Alt nyomva van.
 REPEAT_ENABLED = 0x01
 REPEAT_RELEASE = 0x02
-REPEAT_MASK = REPEAT_ENABLED | REPEAT_RELEASE
+REPEAT_HOLD_MOD = 0x04
+REPEAT_MASK = REPEAT_ENABLED | REPEAT_RELEASE | REPEAT_HOLD_MOD
 
 
 # A műveletenkénti felülbírálás választéka (0 = az üzemmód célpontja).

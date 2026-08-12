@@ -325,8 +325,8 @@
             "type": 1,
             "modifier": 4,
             "code": 43,
-            "repeat": 0,
-            "repeat_ms": 60,
+            "repeat": 7,
+            "repeat_ms": 500,
             "target": 1
           }
         },

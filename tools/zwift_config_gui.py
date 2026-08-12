@@ -24,7 +24,7 @@ from hid_tables import (  # noqa: E402
     ACT_CONSUMER, ACT_KEY, ACT_MODE_NEXT, ACT_NONE, ACT_TYPE_COUNT, ACT_VIEW_CYCLE,
     CONSUMER_KEYS, DEFAULT_TARGETS, EVENT_KEYS, EVENT_NAMES, EV_LONG,
     KEY_CHOICES, KEY_NAMES, MODE_NAMES, MODIFIERS, MODIFIER_KEYSYMS,
-    REPEAT_ENABLED, REPEAT_MASK, REPEAT_RELEASE,
+    REPEAT_ENABLED, REPEAT_HOLD_MOD, REPEAT_MASK, REPEAT_RELEASE,
     SLOT_NAMES, TARGET_ALL, TARGET_CHOICES, TARGET_INHERIT, consumer_label,
     key_label, keysym_to_hid, target_label, target_short,
 )
@@ -46,7 +46,7 @@ FILE_FORMAT = "zwift-buttons-keymap"
 FILE_VERSION = 3
 NUM_SLOTS = 2
 # Ez a program legalább ilyen protokoll-verziójú firmware-t igényel.
-MIN_PROTO = 4
+MIN_PROTO = 5
 
 
 # ---------------------------------------------------------------------------
@@ -82,8 +82,11 @@ class Action:
         # Az ismétlés csak billentyű/média műveletnél értelmes, a cél-felül-
         # bírálás viszont bármelyiknél – ezért az utóbbi nem térhet ki korán.
         if (self.repeat & REPEAT_ENABLED) and self.type in (ACT_KEY, ACT_CONSUMER):
-            mode = ("külön leütések" if self.repeat & REPEAT_RELEASE
-                    else "nyomva tartva")
+            if self.repeat & REPEAT_RELEASE:
+                mode = ("külön leütések, módosító nyomva"
+                        if self.repeat & REPEAT_HOLD_MOD else "külön leütések")
+            else:
+                mode = "nyomva tartva"
             text += f"  (ismétlő {self.repeat_ms} ms, {mode})"
         if self.target:
             text += f"  → {target_short(self.target)}"
@@ -441,6 +444,7 @@ class ActionDialog(tk.Toplevel):
                 value=1 if (action.type == ACT_KEY and action.modifier & bit) else 0)
         self.repeat_var = tk.IntVar(value=1 if action.repeat & REPEAT_ENABLED else 0)
         self.release_var = tk.IntVar(value=1 if action.repeat & REPEAT_RELEASE else 0)
+        self.holdmod_var = tk.IntVar(value=1 if action.repeat & REPEAT_HOLD_MOD else 0)
         self.repeat_ms_var = tk.IntVar(value=action.repeat_ms or 60)
         self.action_target_var = tk.IntVar(value=action.target)
 
@@ -538,13 +542,21 @@ class ActionDialog(tk.Toplevel):
             ttk.Checkbutton(self.repeat_box,
                             text="Külön leütésekként (felengedés minden ismétlés után)",
                             variable=self.release_var,
-                            command=self._update_preview).grid(
+                            command=self._refresh_state).grid(
                 row=2, column=0, columnspan=2, sticky="w", pady=(6, 0))
+            self.holdmod_check = ttk.Checkbutton(
+                self.repeat_box,
+                text="A módosító (Alt, Ctrl, …) maradjon nyomva – Alt+Tab-hoz kell",
+                variable=self.holdmod_var, command=self._update_preview)
+            self.holdmod_check.grid(row=3, column=0, columnspan=2,
+                                    sticky="w", padx=(18, 0))
             ttk.Label(self.repeat_box, wraplength=430, foreground="#555555", text=(
-                "Enélkül a billentyű végig lenyomva marad, és a számítógép a "
-                "saját ismétlési sebességével pörgeti – ilyenkor a fenti idő "
-                "nem érvényesül, és a billentyű beragadtnak tűnhet.")).grid(
-                row=3, column=0, columnspan=2, sticky="w", pady=(4, 0))
+                "Külön leütések nélkül a billentyű végig lenyomva marad, és a "
+                "számítógép a saját ismétlési sebességével pörgeti – ilyenkor a "
+                "fenti idő nem érvényesül. A módosító nyomva tartása az Alt+Tab "
+                "ablakváltáshoz kell: a Windows csak addig lépked tovább, amíg "
+                "az Alt nyomva van, különben csak két ablak között vált.")).grid(
+                row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
         else:
             self.repeat_box = None
 
@@ -688,6 +700,11 @@ class ActionDialog(tk.Toplevel):
             if can_repeat and not self.repeat_var.get():
                 # Ismétlés nélkül az ismétlési idő nem értelmes.
                 self.repeat_spin.configure(state="disabled")
+            # A módosító nyomva tartása csak külön leütések mellett értelmes.
+            if can_repeat and self.repeat_var.get() and self.release_var.get():
+                self.holdmod_check.state(["!disabled"])
+            else:
+                self.holdmod_check.state(["disabled"])
 
         self._update_preview()
 
@@ -712,6 +729,8 @@ class ActionDialog(tk.Toplevel):
             repeat = REPEAT_ENABLED
             if self.repeat_box is not None and self.release_var.get():
                 repeat |= REPEAT_RELEASE
+                if self.holdmod_var.get():
+                    repeat |= REPEAT_HOLD_MOD
         target = self.action_target_var.get()
         if atype == ACT_KEY:
             return Action(ACT_KEY, self._current_modifier(), self.key_var.get(),

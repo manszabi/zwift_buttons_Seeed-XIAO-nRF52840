@@ -88,7 +88,7 @@ használható – minden parancs `Enter`-rel zárul.
 
 | Parancs | Válasz | Leírás |
 |---------|--------|--------|
-| `PING` | `OK ZWIFT_BUTTONS PROTO=4 MODES=3 BUTTONS=5 EVENTS=3 SLOTS=2 CONNS=2` | Eszköz azonosítás |
+| `PING` | `OK ZWIFT_BUTTONS PROTO=5 MODES=3 BUTTONS=5 EVENTS=3 SLOTS=2 CONNS=2` | Eszköz azonosítás |
 | `GET` | 45 db `MAP …`, 3 db `TARGET …` sor, majd `END` | A teljes konfiguráció lekérése |
 | `SETTARGET <m> <maszk>` | `OK` / `ERR …` | Üzemmód cél-eszköze (1 = PC, 2 = telefon, 3 = mindkettő) |
 | `PEERS` | `SLOT …` / `CONN …` sorok, majd `END` | Fiókok és élő BLE kapcsolatok |
@@ -111,7 +111,7 @@ A `MAP` / `SET` mezői:
 | `t` – típus | 0 = nincs, 1 = billentyű, 2 = média, 3 = üzemmód váltás, 4 = nézetváltás |
 | `mod` | módosító bitmaszk: 1 = Ctrl, 2 = Shift, 4 = Alt, 8 = Win (jobb oldali: 16/32/64/128) |
 | `code` | HID keycode (típus 1, max. `255`) vagy consumer usage (típus 2, max. `65535`) |
-| `rep` | ismétlés bitmaszk (csak hosszú nyomásnál): `1` = ismétlés be, `2` = felengedés az ismétlések között, `3` = mindkettő |
+| `rep` | ismétlés bitmaszk (csak hosszú nyomásnál): `1` = ismétlés be, `2` = felengedés az ismétlések között, `4` = a módosító nyomva marad (csak `2` mellett). Pl. `3` = külön leütések, `7` = Alt+Tab-mód |
 | `ms` | ismétlési idő ezredmásodpercben |
 | `tgt` | cél-felülbírálás: `0` = az üzemmód célpontja, egyébként `1`/`2`/`3`. A `SET`-nél elhagyható |
 
@@ -128,6 +128,7 @@ A hosszú nyomáshoz beállítható ismétlés kétféleképp működhet:
 | Mód | `rep` | Mit lát a számítógép |
 |-----|-------|----------------------|
 | **Külön leütések** *(gyári)* | `3` | Minden ismétlés egy teljes leütés + felengedés. Az ismétlési idő pontosan azt jelenti, amit beállítottál. |
+| **Külön leütések, módosító nyomva** | `7` | Mint fent, de az `Alt` / `Ctrl` / `Win` végig nyomva marad, és csak a gomb elengedésekor jön fel. |
 | **Nyomva tartva** | `1` | A billentyű végig lenyomva marad, és a számítógép a **saját** ismétlési sebességével pörgeti. |
 
 A különbség oka, hogy a HID billentyűzet-jelentés a billentyű **állapotát**
@@ -138,6 +139,20 @@ ms-ot, a billentyű „beragadtnak" tűnik, és a gép a saját ütemében ismé
 Ezért a gyári kiosztásban mind a négy ismétlődő művelet (a le nyíl és a
 hangerő gombok) **külön leütésekként** megy ki. A szerkesztő ablakban a
 *„Külön leütésekként"* pipával váltható.
+
+### Alt+Tab: miért kell a módosítót nyomva tartani
+
+A Windows ablakváltója **csak addig lépked tovább, amíg az `Alt` nyomva van**.
+Ha az `Alt+Tab` teljes leütés+felengedésként megy ki, az mindig csak a két
+legutóbbi ablak között vált oda-vissza.
+
+Ezért a gyári kiosztásban a Média vezérlő üzemmód **Gomb 2 hosszú nyomása**
+ismétlődő, külön leütésekkel, **nyomva tartott módosítóval**, 500 ms-onként:
+lenyomva tartva az ablakváltó nyitva marad és lépked tovább, a gomb
+elengedésekor pedig az `Alt` felenged, és a kiválasztott ablak kerül előtérbe.
+
+A szerkesztő ablakban ez a *„A módosító (Alt, Ctrl, …) maradjon nyomva"*
+pipával kapcsolható; csak a *Külön leütésekként* mellett választható.
 
 > Ha az eszközön már van mentett kiosztás, az felülírja a gyári beállítást.
 > A régebbi mentésekben `rep = 1` szerepel, vagyis „nyomva tartva" — ilyenkor
