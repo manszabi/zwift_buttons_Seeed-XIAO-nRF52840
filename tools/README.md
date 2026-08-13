@@ -452,6 +452,24 @@ parancsok azonnal hatnak a memóriában, a flashbe csak a `SAVE` ír (az pedig
 áramszünet-biztos, lásd fentebb). Ha félbeszakadt a küldés, elég újra
 végigküldeni a kiosztást.
 
+### Akkumulátor, LED, watchdog
+
+**Akkumulátor-szint.** Az eszköz szabványos BLE Battery Service-en jelenti a
+töltöttséget (percenként frissítve), tehát a telefon Bluetooth-beállításaiban
+és a Windows eszközlistájában is látszik. A mérés a XIAO beépített
+feszültségosztóján keresztül történik; a százalék a LiPo kisülési görbéjéhez
+igazított töréspontos táblázatból jön, nem egyszerű lineáris átváltásból.
+
+**LED.** Az üzemmódot jelző LED **2 másodpercre villan fel** bekapcsoláskor és
+minden üzemmódváltáskor, utána elalszik. Folyamatosan égve ez fogyasztaná a
+legtöbbet az egész eszközön – nagyságrendekkel többet, mint maga a rádió.
+
+**Hardveres watchdog.** Ha a firmware valaha megakadna (végtelen ciklus,
+holtpont), a chip **10 másodperc után magától újraindul**. Mivel az üzemmód és
+a kiosztás is mentve van, az újraindulás gyakorlatilag észrevétlen: az eszköz
+ugyanabban az üzemmódban jön vissza, és újra hirdeti magát. Alvó módban a
+watchdog nem fut, tehát nem ébreszti fel az eszközt.
+
 ### Mikor alszik el az eszköz
 
 15 perc (900 másodperc) tétlenség után. A számlálót **bármelyik gombnyomás és
@@ -486,7 +504,11 @@ Ha a kapcsolat még a parancs kiküldése **előtt** szakad meg, semmi nem megy 
 Zwiftben beállított nézettől sem csúszik el.
 
 **Amíg egyik eszköz sincs hozzárendelve, minden gombnyomás mindkét
-kapcsolatra kimegy** — így az eszköz párosítás után azonnal használható.
+kapcsolatra kimegy** – függetlenül attól, hogy az üzemmód vagy az adott cella
+melyik célpontot kérné. Ez azért fontos, mert a fájlrendszer sérülése utáni
+automatikus formázás a párosításokat és a hozzárendeléseket is törli: ilyenkor
+az eszköz nem néma marad, hanem mindent mindkét géppel közöl, amíg újra hozzá
+nem rendeled őket. — így az eszköz párosítás után azonnal használható.
 Amint viszont legalább egy hozzárendelés létezik, a hozzá nem rendelt eszközök
 **egyetlen parancsot sem kapnak meg**; ezért érdemes mindkettőt hozzárendelni.
 A konfiguráló program figyelmeztet, ha van hozzá nem rendelt csatlakozott eszköz.

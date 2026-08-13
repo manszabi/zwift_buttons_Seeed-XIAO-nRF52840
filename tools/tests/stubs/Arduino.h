@@ -19,6 +19,12 @@ inline void delay(unsigned long ms) { g_millis += ms; }
 extern bool g_pinLow[32];
 inline int digitalRead(int pin) { return g_pinLow[pin] ? LOW : HIGH; }
 inline void pinMode(int, int) {}
+// ADC: a teszt a g_adcRaw ertekkel adja meg, mit "mer" az eszkoz.
+extern int g_adcRaw;
+enum { AR_DEFAULT = 0, AR_INTERNAL_3_0 = 1 };
+inline void analogReference(int) {}
+inline void analogReadResolution(int) {}
+inline int analogRead(int) { return g_adcRaw; }
 inline void digitalWrite(int, int) {}
 extern uint32_t g_ADigitalPinMap[32];
 typedef std::string String;

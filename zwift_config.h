@@ -55,6 +55,19 @@
 // A rövid és a dupla nyomás küldési hosszának felső határa (ms). Amíg egy ilyen
 // küldés tart, más parancs nem mehet ki, ezért nem érdemes tetszőlegesen
 // hosszúra engedni.
+// Hardveres watchdog: ha a főciklus ennyi ideig nem jelentkezik be, a chip
+// magától újraindul. A mentett üzemmód és kiosztás miatt az újraindulás
+// észrevétlen. Bőven a leghosszabb blokkoló művelet (flash-írás) fölött van.
+#define ZW_WDT_TIMEOUT_MS 10000
+
+// Meddig világítson az üzemmódot jelző LED. Folyamatosan égve ez fogyasztaná a
+// legtöbbet az egész eszközön (nagyságrendekkel többet, mint a rádió), ezért
+// csak felvillan: bekapcsoláskor és minden üzemmódváltáskor.
+#define ZW_LED_ON_MS 2000
+
+// Milyen gyakran mérjük és jelentsük az akkumulátor töltöttségét.
+#define ZW_BATTERY_UPDATE_MS 60000
+
 // Ha egy gombot ennél tovább tartanak nyomva, az szinte biztosan fizikai
 // beragadás: a leghosszabb értelmes tartás (hangerő, Alt+Tab ablakváltás)
 // nagyságrendekkel rövidebb. A firmware ilyenkor figyelmen kívül hagyja a

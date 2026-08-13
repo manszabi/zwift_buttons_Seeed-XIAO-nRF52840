@@ -19,7 +19,8 @@ int g_keyReleaseCount = 0, g_consumerReleaseCount = 0;
 bool g_fsWriteFail = false; bool g_fsRenameFail = false; bool g_fsRemoveFail = false;
 std::vector<uint16_t> g_disconnected;
 uint8_t g_lastModifier = 0; uint8_t g_lastPressedCode = 0;
-int g_lastConnHdl = -1; int g_sentTo[8] = {0}; bool g_pinLow[32] = {false}; int g_systemOffCount = 0; int g_notifyFail = 0; int g_releasedTo[8]={0};
+int g_lastConnHdl = -1; int g_sentTo[8] = {0}; bool g_pinLow[32] = {false}; int g_systemOffCount = 0; int g_adcRaw = 0; int g_batteryPercent = -1;
+static WdtRegs g_wdtRegs; WdtRegs* NRF_WDT = &g_wdtRegs; int g_notifyFail = 0; int g_releasedTo[8]={0};
 FakeConn g_conns[4] = {};
 BluefruitStub Bluefruit;
 cbfn g_pendingCb = nullptr;
@@ -95,6 +96,7 @@ static void disconnectPeer(uint16_t h) {
 static void settleTap() { g_millis += repeatTapMs + 1; updateRepeatTap(); }
 
 static int8_t slotOfConnTest(uint16_t h) { return slotOfConn(h); }
+static void updateBatteryTest(bool f) { updateBattery(f); }
 
 static void resetKeyState() {
   hasKeyPressed = false; hasConsumerKeyPressed = false;
@@ -1915,6 +1917,124 @@ int main() {
     loadDefaultKeymap();
   }
   std::cout << "-- R71 megszakadt mentes: vagy a regi, vagy az uj marad - soha nem szemet\n";
+
+  // R72) Hardveres watchdog, LED-felvillanas, akkumulator-szint
+  // a) A watchdog elindult, es a fociklus eteti
+  if (!g_wdtRegs.TASKS_START) {
+    std::cout << "HIBA R72: a hardveres watchdog nem indult el\n";
+    return 1;
+  }
+  {
+    // A CRV a 32768 Hz-es orajelbol szamolt idokorlat
+    uint32_t vart = (uint32_t)((32768ULL * ZW_WDT_TIMEOUT_MS) / 1000ULL) - 1;
+    if (g_wdtRegs.CRV != vart) {
+      std::cout << "HIBA R72: rossz watchdog idokorlat (" << g_wdtRegs.CRV
+                << " helyett " << vart << ")\n";
+      return 1;
+    }
+    g_wdtRegs.RR[0] = 0;
+    loop();
+    if (g_wdtRegs.RR[0] != WDT_RR_RR_Reload) {
+      std::cout << "HIBA R72: a fociklus nem eteti a watchdogot\n";
+      return 1;
+    }
+  }
+
+  // b) A LED felvillan, majd elalszik (nem eg folyamatosan)
+  {
+    jelenlegiUzemmod = normalUzemmod;
+    updateLeds();                       // uzemmodvaltas -> felvillan
+    jelenlegiUzemmod = versenyEdzesUzemmod;
+    updateLeds();
+    if (!ledsLit) {
+      std::cout << "HIBA R72: uzemmodvaltaskor nem gyullad ki a LED\n";
+      return 1;
+    }
+    g_millis += ZW_LED_ON_MS - 100;
+    updateLeds();
+    if (!ledsLit) {
+      std::cout << "HIBA R72: a LED korabban alszik el a beallitott idonel\n";
+      return 1;
+    }
+    g_millis += 200;
+    updateLeds();
+    if (ledsLit) {
+      std::cout << "HIBA R72: a LED nem alszik el, folyamatosan fogyaszt\n";
+      return 1;
+    }
+  }
+
+  // c) Akkumulator-szint: a mert feszultsegbol szazalek lesz
+  {
+    // 4,2 V -> raw = 4200 * 510/1510 / (3000/4096)
+    struct { int raw; int minPct; int maxPct; const char* mit; } esetek[] = {
+      { 1936, 95, 100, "tele (4,2 V)" },
+      { 1706, 10, 25,  "kozepes (~3,7 V)" },
+      { 1521, 0,  5,   "ures (~3,3 V)" },
+    };
+    for (unsigned i = 0; i < sizeof(esetek)/sizeof(esetek[0]); i++) {
+      g_adcRaw = esetek[i].raw;
+      g_batteryPercent = -1;
+      updateBatteryTest(true);
+      if (g_batteryPercent < esetek[i].minPct || g_batteryPercent > esetek[i].maxPct) {
+        std::cout << "HIBA R72: " << esetek[i].mit << " -> " << g_batteryPercent
+                  << "% (vart: " << esetek[i].minPct << ".." << esetek[i].maxPct << ")\n";
+        return 1;
+      }
+    }
+    // Nem meri ujra tul suru koveteskor
+    g_adcRaw = 1936; updateBatteryTest(true);
+    g_adcRaw = 1521; g_batteryPercent = -1;
+    updateBatteryTest(false);
+    if (g_batteryPercent != -1) {
+      std::cout << "HIBA R72: minden korben ujramer (folosleges fogyasztas)\n";
+      return 1;
+    }
+  }
+  std::cout << "-- R72 watchdog etetve, LED felvillan es elalszik, akku jelentve\n";
+
+  // R73) Ha egyetlen eszkoz sincs hozzarendelve (pl. fajlrendszer-formazas
+  //      utan), MINDEN parancs mindket kapcsolatra menjen ki - fuggetlenul
+  //      attol, hogy az uzemmod vagy a cella melyik celpontot kerne.
+  loadDefaultKeymap();
+  send("CLEARSLOT 0"); send("CLEARSLOT 1");     // mintha formazas utan lennenk
+  disconnectPeer(0); disconnectPeer(1);
+  connectPeer(0, 0xA0); connectPeer(1, 0xB0);
+  {
+    // Normal uzemmod celpontja gyarilag CSAK a PC
+    jelenlegiUzemmod = normalUzemmod;
+    resetKeyState();
+    click1();
+    if (!(g_sentTo[0] == 1 && g_sentTo[1] == 1)) {
+      std::cout << "HIBA R73: hozzarendeles nelkul nem mindket eszkoz kapja meg "
+                << "(PC=" << g_sentTo[0] << " telefon=" << g_sentTo[1] << ")\n";
+      return 1;
+    }
+    for (int i = 0; i < 10; i++) { g_millis += 30; loop(); }
+
+    // Es a cellara adott felulbiralas sem szukiti (Media/G1/hosszu = csak PC)
+    jelenlegiUzemmod = mediaVezerloUzemmod;
+    resetKeyState();
+    longPressStart1(); longPress1();
+    if (!(g_sentTo[0] >= 1 && g_sentTo[1] >= 1)) {
+      std::cout << "HIBA R73: a cella-felulbiralas hozzarendeles nelkul is szukit\n";
+      return 1;
+    }
+    longPressStop1();
+    for (int i = 0; i < 10; i++) { g_millis += 50; loop(); }
+
+    // Amint viszont VAN hozzarendeles, ervenyesul a celpont
+    send("ASSIGN 0 0"); send("ASSIGN 1 1");
+    jelenlegiUzemmod = normalUzemmod;
+    resetKeyState();
+    click1();
+    if (!(g_sentTo[0] == 1 && g_sentTo[1] == 0)) {
+      std::cout << "HIBA R73: hozzarendeles utan sem ervenyesul a celpont\n";
+      return 1;
+    }
+    for (int i = 0; i < 10; i++) { g_millis += 30; loop(); }
+  }
+  std::cout << "-- R73 hozzarendeles nelkul mindket eszkoz megkap mindent\n";
 
   std::cout << "\nMINDEN TESZT SIKERES\n";
   return 0;

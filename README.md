@@ -17,7 +17,9 @@ Az eszköz 5 fizikai gombbal rendelkezik, és 3 különböző üzemmódot támog
 - **Állítható küldési hossz** – Rövid nyomásnál és dupla kattintásnál megadható, hogy a parancs meddig menjen ki (50–5000 ms), ismétléssel vagy anélkül – például a telefon asszisztensének indításához, ami nyomva tartott gombot vár
 - **Üzemmód-mentés** – Az aktuális üzemmód a belső flash-memóriába mentődik, újraindítás után is megmarad
 - **Kiosztás-mentés** – A gomb-kiosztás is a belső flash-memóriába kerül (CRC-vel védve), újraindítás után is megmarad
-- **LED visszajelzés** – 3 szín (piros, kék, zöld) jelzi az aktuális üzemmódot
+- **LED visszajelzés** – 3 szín (piros, kék, zöld) jelzi az aktuális üzemmódot; a LED **2 másodpercre villan fel** bekapcsoláskor és üzemmódváltáskor, utána elalszik (folyamatosan égve ez fogyasztaná a legtöbbet)
+- **Akkumulátor-szint** – az eszköz BLE-n jelenti a töltöttséget, így a telefon és a Windows is mutatja
+- **Hardveres watchdog** – ha a firmware valaha megakadna, a chip magától újraindul; a mentett üzemmód és kiosztás miatt ez észrevétlen
 - **Automatikus kikapcsolás** – 900 másodperc (15 perc) inaktivitás után alvó módba lép az energiatakarékosság érdekében
 - **Gombnyomásra ébredés** – Alvó módból a 2-es (WAKEUP_PIN) gomb megnyomásával kelthető fel
 - **Alacsony fogyasztás** – DC-DC konverter engedélyezve, QSPI flash alvó módba helyezve kikapcsoláskor
@@ -45,6 +47,8 @@ Az eszköz 5 fizikai gombbal rendelkezik, és 3 különböző üzemmódot támog
 | D12 | LED – Kék (Verseny/Edzés üzemmód) |
 | D13 | LED – Zöld (Média vezérlő üzemmód) |
 | D22 | Töltési áram szabályozás |
+| D14 | Akkumulátor-mérés engedélyezése (végig LOW) |
+| P0.31 | Akkumulátor-feszültség (ADC, 1 MΩ / 510 kΩ osztón át) |
 
 ---
 

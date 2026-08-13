@@ -36,6 +36,34 @@ static void cancelBurst();
 
 BLEDis bledis;
 BLEHidAdafruit blehid;
+// Akkumulátor-szint szolgáltatás: a telefon és a Windows is meg tudja mutatni.
+BLEBas blebas;
+
+// ---------------------------------------------------------------------------
+// Hardveres watchdog
+//
+// A fct_Watchdog() név ellenére az csak tétlenségi számláló az alváshoz. Ez itt
+// a chip WDT perifériája: ha a főciklus ZW_WDT_TIMEOUT_MS ideig nem eteti meg,
+// a chip magától újraindul. Enélkül egy megakadt firmware (végtelen ciklus,
+// holtpont) halott eszközt jelentene, amit csak kézzel lehetne újraindítani —
+// kerékpáron ez menet közbeni használhatatlanságot jelent.
+//
+// Alvásban (System OFF) a WDT nem fut: a System OFF a GPIO / LPCOMP / NFC
+// kivételével minden perifériát letilt, tehát nem ébreszti fel az eszközt.
+// ---------------------------------------------------------------------------
+static void hwWatchdogBegin() {
+  // HALT:Pause = hibakereső alatt megáll, SLEEP:Run = alvó CPU mellett is számol
+  NRF_WDT->CONFIG = (WDT_CONFIG_HALT_Pause << WDT_CONFIG_HALT_Pos)
+                    | (WDT_CONFIG_SLEEP_Run << WDT_CONFIG_SLEEP_Pos);
+  // A számláló a 32768 Hz-es órajelről megy.
+  NRF_WDT->CRV = (uint32_t)((32768ULL * ZW_WDT_TIMEOUT_MS) / 1000ULL) - 1;
+  NRF_WDT->RREN = WDT_RREN_RR0_Msk;
+  NRF_WDT->TASKS_START = 1;
+}
+
+static inline void hwWatchdogFeed() {
+  NRF_WDT->RR[0] = WDT_RR_RR_Reload;
+}
 
 const int ledPin[] = { 11, 12, 13 };  //red, blue, green
 const int pin_charging_current = 22;  //mekkora árammal töltsön
@@ -74,6 +102,10 @@ static unsigned long lastRepeatMillis = 0;
 static bool burstActive = false;
 static unsigned long burstEndMillis = 0;
 static KeyAction burstAction;
+
+// Az üzemmód-LED csak felvillan, nem ég folyamatosan (lásd ZW_LED_ON_MS).
+static unsigned long ledOffMillis = 0;
+static bool ledsLit = false;
 
 // Beragadt gomb felismerése. A hosszú nyomás kezdete gombonként, és egy
 // bitmaszk azokról, amelyeket már beragadtnak tekintünk.
@@ -142,6 +174,62 @@ Adafruit_FlashTransport_QSPI flashTransport;
 uzemmod jelenlegiUzemmod = normalUzemmod;
 
 
+// ---------------------------------------------------------------------------
+// Akkumulátor-szint
+//
+// A XIAO nRF52840 lábkiosztása (Seeed variant.h): VBAT_ENABLE = 14 (LOW
+// engedélyezi a mérést), PIN_VBAT = 32. Az osztó 1 MΩ / 510 kΩ, tehát a mért
+// feszültséget 1510/510 arányban kell visszaszorozni.
+//
+// FIGYELEM: a VBAT_ENABLE-t végig LOW-on hagyjuk. Seeed figyelmeztetése szerint
+// HIGH állapotban a PIN_VBAT töltés közben a megengedett 3,6 V fölé kerülhet.
+// Az osztó folyamatos fogyasztása elhanyagolható (~3 µA).
+// ---------------------------------------------------------------------------
+#define ZW_VBAT_ENABLE_PIN 14
+#define ZW_VBAT_PIN 32
+
+static unsigned long lastBatteryMillis = 0;
+
+static uint16_t readBatteryMillivolts() {
+  // 12 bit felbontas, 3,0 V-os belso referencia: 3000 mV / 4096 lepes.
+  uint32_t raw = (uint32_t)analogRead(ZW_VBAT_PIN);
+  uint32_t adcMv = (raw * 3000UL) / 4096UL;
+  return (uint16_t)((adcMv * 1510UL) / 510UL);
+}
+
+// Feszültség -> töltöttség. A LiPo kisülési görbéje nem lineáris: a
+// 3,7-3,9 V közötti szűk sávban van a kapacitás nagy része, ezért egy egyenes
+// nagyot tévedne (3,7 V-ra például kétszer annyit mutatna a valóságosnál).
+// Ezért töréspontos táblázatot használunk, köztük lineáris átmenettel.
+static uint8_t batteryPercent(uint16_t mv) {
+  static const struct { uint16_t mv; uint8_t pct; } GORBE[] = {
+    { 4200, 100 }, { 4060, 90 }, { 3980, 80 }, { 3920, 70 }, { 3870, 60 },
+    { 3820, 50 }, { 3790, 40 }, { 3770, 30 }, { 3740, 20 }, { 3680, 10 },
+    { 3450, 5 }, { 3000, 0 }
+  };
+  const uint8_t n = sizeof(GORBE) / sizeof(GORBE[0]);
+  if (mv >= GORBE[0].mv) return 100;
+  if (mv <= GORBE[n - 1].mv) return 0;
+  for (uint8_t i = 1; i < n; i++) {
+    if (mv >= GORBE[i].mv) {
+      // lineáris átmenet a két töréspont között
+      uint16_t alsoMv = GORBE[i].mv, felsoMv = GORBE[i - 1].mv;
+      uint8_t alsoP = GORBE[i].pct, felsoP = GORBE[i - 1].pct;
+      return (uint8_t)(alsoP + ((uint32_t)(mv - alsoMv) * (felsoP - alsoP))
+                                 / (felsoMv - alsoMv));
+    }
+  }
+  return 0;
+}
+
+static void updateBattery(bool force) {
+  unsigned long now = millis();
+  if (!force && (now - lastBatteryMillis) < ZW_BATTERY_UPDATE_MS) return;
+  lastBatteryMillis = now;
+  uint16_t mv = readBatteryMillivolts();
+  blebas.write(batteryPercent(mv));
+}
+
 void QSPIF_sleep(void) {
   flashTransport.begin();
   flashTransport.runCommand(0xB9);
@@ -178,6 +266,13 @@ void setup() {
   pinMode(pin_charging_current, OUTPUT);  //charging current
   digitalWrite(pin_charging_current, LOW);  //toltes alacsony árammal
 
+  // Akkumulátor-mérés előkészítése. A VBAT_ENABLE végig LOW marad (lásd a
+  // readBatteryMillivolts() fölötti megjegyzést).
+  pinMode(ZW_VBAT_ENABLE_PIN, OUTPUT);
+  digitalWrite(ZW_VBAT_ENABLE_PIN, LOW);
+  analogReference(AR_INTERNAL_3_0);
+  analogReadResolution(12);
+
   NRF_POWER->DCDCEN = 1;
 
   attachButtonCallbacks();
@@ -212,10 +307,16 @@ void setup() {
   bledis.setModel("ZWIFT_button");
   bledis.begin();
   blehid.begin();
+  blebas.begin();
+  updateBattery(true);   // legyen mit mutatnia a csatlakozás pillanatában
   Bluefruit.Periph.setConnInterval(9, 12);
   Bluefruit.Periph.setConnectCallback(connect_callback);
   Bluefruit.Periph.setDisconnectCallback(disconnect_callback);
   startAdv();
+
+  // A hardveres watchdogot utoljára indítjuk: az indulás hosszabb műveletei
+  // (fájlrendszer, BLE) így nem futhatnak bele.
+  hwWatchdogBegin();
 }
 
 void loop() {
@@ -249,6 +350,10 @@ void loop() {
     else if (jelenlegiUzemmod == versenyEdzesUzemmod) saveUzemmod(CONTENTVerseny);
     else if (jelenlegiUzemmod == mediaVezerloUzemmod) saveUzemmod(CONTENTMedia);
   }
+
+  // A hardveres watchdog etetése: ha a főciklus megakad, a chip újraindul.
+  hwWatchdogFeed();
+  updateBattery(false);
 
   watchDOG.update();
   // A delay() ezen a magon vTaskDelay: átadja a vezérlést az ütemezőnek (és
@@ -452,14 +557,29 @@ void fct_WatchdogReset() {
 // másodpercenként kapcsolgatnánk mindhárom lábat, fölöslegesen.
 void updateLeds() {
   static int8_t shownMode = -1;
-  if (shownMode == (int8_t)jelenlegiUzemmod) return;
-  shownMode = (int8_t)jelenlegiUzemmod;
 
-  for (int i = 0; i < numOfLeds; i++) {
-    digitalWrite(ledPin[i], HIGH);
+  // Üzemmódváltáskor (és bekapcsoláskor, mert a shownMode -1-ről indul)
+  // felvillan az adott szín.
+  if (shownMode != (int8_t)jelenlegiUzemmod) {
+    shownMode = (int8_t)jelenlegiUzemmod;
+    for (int i = 0; i < numOfLeds; i++) {
+      digitalWrite(ledPin[i], HIGH);
+    }
+    if ((uint8_t)jelenlegiUzemmod < (uint8_t)numOfLeds) {
+      digitalWrite(ledPin[(uint8_t)jelenlegiUzemmod], LOW);
+    }
+    ledsLit = true;
+    ledOffMillis = millis() + ZW_LED_ON_MS;
+    return;
   }
-  if ((uint8_t)jelenlegiUzemmod < (uint8_t)numOfLeds) {
-    digitalWrite(ledPin[(uint8_t)jelenlegiUzemmod], LOW);
+
+  // A beállított idő letelte után elalszik: folyamatosan égve a LED fogyasztana
+  // a legtöbbet az eszközön.
+  if (ledsLit && (long)(millis() - ledOffMillis) >= 0) {
+    ledsLit = false;
+    for (int i = 0; i < numOfLeds; i++) {
+      digitalWrite(ledPin[i], HIGH);
+    }
   }
 }
 

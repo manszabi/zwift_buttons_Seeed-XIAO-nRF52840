@@ -47,6 +47,10 @@
 #define NRF_GPIO_PIN_PULLUP 0
 #define NRF_GPIO_PIN_SENSE_LOW 0
 inline void nrf_gpio_cfg_sense_input(uint32_t, int, int) {}
+// Akkumulator-szint szolgaltatas: a teszt a g_batteryPercent-bol olvassa ki,
+// mit jelentett az eszkoz.
+extern int g_batteryPercent;
+struct BLEBas { void begin() {} bool write(uint8_t p) { g_batteryPercent = p; return true; } };
 struct BLEDis { void setManufacturer(const char*) {} void setModel(const char*) {} void begin() {} };
 struct KeyLog { uint8_t modifier; uint8_t code; bool consumer; uint16_t usage; };
 extern KeyLog g_lastKey;
