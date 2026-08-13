@@ -1658,6 +1658,62 @@ int main() {
   assert(g_keyCount == 1);              // utana ujra mukodik
   std::cout << "-- R67 elveszett ertesites: felengedes ujrakuldve, lenyomas nem hazudik\n";
 
+  // R68) Egyszerre (ugyanabban a korben) megnyomott gombok
+  loadDefaultKeymap();
+  send("CLEARSLOT 0"); send("CLEARSLOT 1");
+  disconnectPeer(0); disconnectPeer(1);
+  connectPeer(0, 0xA0);
+  jelenlegiUzemmod = normalUzemmod;
+
+  // a) Ket rovid nyomas ugyanabban a korben: csak az elso megy ki (a masodik
+  //    nem torlodhat ra), de a masodik semmit nem ront el.
+  resetKeyState();
+  click1();                       // Balra nyil
+  click3();                       // Jobbra nyil - a 100 ms-os ablakon belul
+  if (g_keyCount != 1 || g_lastPressedCode != HID_KEY_ARROW_LEFT) {
+    std::cout << "HIBA R68a: " << g_keyCount << " billentyu ment ki, utolso 0x"
+              << std::hex << (int)g_lastPressedCode << std::dec << "\n";
+    return 1;
+  }
+  for (int i = 0; i < 10; i++) { g_millis += 30; loop(); }
+  assert(!hasKeyPressed && pressedTargetCount == 0);
+  // b) A felengedes utan viszont a masodik gomb is mukodik
+  resetKeyState();
+  click3();
+  assert(g_keyCount == 1 && g_lastPressedCode == HID_KEY_ARROW_RIGHT);
+  for (int i = 0; i < 10; i++) { g_millis += 30; loop(); }
+
+  // c) Ket hosszu nyomas egyszerre: a kesobb indulo veszi at, a masik nem
+  //    ragad be, es a vegen tiszta az allapot.
+  expect(send("SET 0 0 2 1 0 80 3 100"), "OK", "G1 hosszu = ismetlodo balra");
+  expect(send("SET 0 2 2 1 0 79 3 100"), "OK", "G3 hosszu = ismetlodo jobbra");
+  resetKeyState();
+  longPressStart1(); longPressStart3();
+  assert(repeatButton == 2);      // a G3 vette at
+  for (int i = 0; i < 4; i++) { g_millis += 120; updateRepeatTap(); longPress1(); longPress3(); }
+  if (g_lastPressedCode != HID_KEY_ARROW_RIGHT) {
+    std::cout << "HIBA R68c: nem az atvevo gomb billentyuje megy ki\n";
+    return 1;
+  }
+  longPressStop1(); longPressStop3();
+  for (int i = 0; i < 10; i++) { g_millis += 50; loop(); }
+  assert(!hasKeyPressed && !hasConsumerKeyPressed && pressedTargetCount == 0);
+
+  // d) Az uzemmodvaltas akkor is lefut, ha epp mas parancs van folyamatban:
+  //    nem kuld BLE-re, ezert nem torlodhat semmivel.
+  loadDefaultKeymap();
+  jelenlegiUzemmod = normalUzemmod;
+  resetKeyState();
+  click1();
+  doubleclick4();
+  if (jelenlegiUzemmod != versenyEdzesUzemmod) {
+    std::cout << "HIBA R68d: az uzemmodvaltas elmaradt\n";
+    return 1;
+  }
+  jelenlegiUzemmod = normalUzemmod;
+  for (int i = 0; i < 10; i++) { g_millis += 50; loop(); }
+  std::cout << "-- R68 egyszerre nyomott gombok: nincs torlodas es nincs beragadas\n";
+
   std::cout << "\nMINDEN TESZT SIKERES\n";
   return 0;
 }

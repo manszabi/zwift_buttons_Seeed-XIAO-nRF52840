@@ -321,6 +321,24 @@ A hirdetés újraindítását a firmware maga végzi: a Bluefruit könyvtár csa
 indítja újra magától, ha **minden** kapcsolat megszűnt, két eszköznél tehát
 enélkül a kieső eszköz nem tudna visszajönni, amíg a másik kapcsolat él.
 
+### Ha egyszerre nyomsz meg több gombot
+
+Az eszköz egyszerre mindig **egyetlen** parancsot tart a levegőben – így nem
+fordulhat elő, hogy két billentyű állapota egymásra torlódik a számítógépnél.
+A gombokat a firmware sorban kérdezi le (Gomb 1-től Gomb 5-ig), tehát ha két
+esemény ugyanabba a körbe esik, az **alacsonyabb sorszámú gomb nyer**:
+
+| Helyzet | Mi történik |
+|---------|-------------|
+| Két **rövid** nyomás egy körben | Az alacsonyabb sorszámú gomb parancsa megy ki, a másik **elmarad**. Kb. 100 ms elteltével (a felengedés után) a következő gombnyomás már működik. |
+| Két **hosszú** nyomás egyszerre | A **később induló** veszi át az ismétlést; a korábbi tisztán lezárul (a billentyűje felengedődik), és a gomb elengedése sem hagy maga után semmit. Ha újra akarod, engedd el és nyomd meg megint. |
+| Rövid nyomás, majd rögtön egy hosszú | A hosszú nyomás átveszi: az előző lenyomás **felengedődik a saját célpontján**, csak utána indul az ismétlés. |
+| **Üzemmódváltás** bármi mással egyszerre | Az üzemmódváltás **mindig lefut** – nem küld semmit BLE-n, ezért nem torlódhat semmivel. Ez egyben a biztos kiút is, ha épp egy hosszú küldés zajlik. |
+
+Ez szándékos: egy elmaradt gombnyomás bosszantó, egy beragadt billentyű viszont
+sokkal rosszabb. A firmware ezért inkább kihagy egy parancsot, mint hogy két
+billentyű-állapotot keverjen össze.
+
 ### Ha egy parancs küldése nem sikerül
 
 A BLE jelentések nem sorbaállított küldések: ha a rádiónak épp nincs szabad
