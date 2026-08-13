@@ -72,5 +72,56 @@ try:
 except g.DeviceError as e:
     check("Nincs kapcsolat" in str(e), "read_config: %s" % str(e)[:40])
 
+print("\n[E] A kapcsolat elszakad muvelet kozben")
+class Breaking:
+    """Elso ket olvasas rendben (PING, DBG), utana kivetel - mint egy kihuzott USB."""
+    def __init__(s, mode): s.mode = mode; s.reads = 0; s.out = []; s.is_open = True
+    def reset_input_buffer(s): pass
+    def flush(s): pass
+    def close(s): s.is_open = False
+    def write(s, data):
+        cmd = data.decode().strip().split()[0].upper()
+        if s.mode == "write" and s.reads >= 2:
+            raise OSError("device disconnected")
+        if cmd == "PING":
+            s.out.append("OK ZWIFT_BUTTONS PROTO=6 MODES=3 BUTTONS=5 EVENTS=3 SLOTS=2 CONNS=2")
+        elif cmd == "DBG": s.out.append("OK DBG 0")
+        else: s.out.append("OK")
+    def readline(s):
+        s.reads += 1
+        if s.reads > 2: raise OSError("device disconnected")
+        return (s.out.pop(0) + "\r\n").encode() if s.out else b""
+
+for mode, muvelet in (("read", "beolvasas"), ("write", "kuldes")):
+    ser = Breaking(mode)
+    g.serial = types.SimpleNamespace(Serial=lambda *a, **k: ser)
+    link = g.DeviceLink(); link.open("FAKE")
+    check(link.connected, "%s: sikeres csatlakozas" % muvelet)
+    try:
+        if mode == "read": link.read_config()
+        else: link.write_config(g.empty_keymap(), g.default_targets())
+        check(False, "%s: kellett volna hiba" % muvelet)
+    except g.DeviceError as exc:
+        check("kapcsolat megszakadt" in str(exc),
+              "%s: a hibauzenet megmondja, mi tortent" % muvelet)
+    check(not link.connected,
+          "%s: a kapcsolat le is zarult (nem hiszi magat csatlakozottnak)" % muvelet)
+
+print("\n[F] A memoriaba mentes elveszett valasza nem allit biztosat")
+class SilentSave(Breaking):
+    def readline(s):
+        s.reads += 1
+        if s.reads > 2: return b""          # elnemul: nem kivetel, csak nincs valasz
+        return (s.out.pop(0) + "\r\n").encode() if s.out else b""
+ser = SilentSave("read")
+g.serial = types.SimpleNamespace(Serial=lambda *a, **k: ser)
+link = g.DeviceLink(); link.open("FAKE")
+try:
+    link.save_to_flash()
+    check(False, "kellett volna hiba")
+except g.DeviceError as exc:
+    check("bizonytalan" in str(exc),
+          "a mentes eredmenye bizonytalankent jelenik meg, nem hibakent")
+
 print("\n" + ("HIBAK: %d" % len(fails) if fails else "MINDEN KAPCSOLAT-TESZT SIKERES"))
 sys.exit(1 if fails else 0)

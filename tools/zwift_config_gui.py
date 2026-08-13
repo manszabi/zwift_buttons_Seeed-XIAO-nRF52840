@@ -349,6 +349,18 @@ class DeviceLink:
 
     # -- alacsony szint --
 
+    def _lost(self, what, exc):
+        """A port hibát dobott: az eszköz jó eséllyel eltűnt (kihúzták, lefagyott).
+
+        Ilyenkor lezárjuk a kapcsolatot, hogy a program ne higgye magát tovább
+        csatlakozottnak – különben minden további művelet ugyanezzel a hibával
+        állna meg, és a felhasználó nem értené, miért.
+        """
+        self.close()
+        return DeviceError(f"{what}: {exc}\n\nA kapcsolat megszakadt "
+                           "(kihúzott kábel? újraindult az eszköz?). "
+                           "Csatlakozz újra.")
+
     def _write(self, cmd):
         if not self.connected:
             raise DeviceError("Nincs kapcsolat az eszközzel.")
@@ -357,13 +369,13 @@ class DeviceLink:
             self.ser.write((cmd + "\n").encode("ascii"))
             self.ser.flush()
         except Exception as exc:
-            raise DeviceError(f"Írási hiba: {exc}")
+            raise self._lost("Írási hiba", exc)
 
     def _readline(self):
         try:
             raw = self.ser.readline()
         except Exception as exc:
-            raise DeviceError(f"Olvasási hiba: {exc}")
+            raise self._lost("Olvasási hiba", exc)
         return raw.decode("ascii", errors="replace").strip()
 
     def command(self, cmd, timeout=2.0):
@@ -510,7 +522,15 @@ class DeviceLink:
         return self.command(f"CLEARSLOT {slot}", timeout=3.0)
 
     def save_to_flash(self):
-        return self.command("SAVE", timeout=5.0)
+        try:
+            return self.command("SAVE", timeout=5.0)
+        except DeviceError as exc:
+            # A parancs kiment; ha csak a válasz veszett el, az eszköz akár el is
+            # menthette. Ezt nem tudjuk eldönteni, ne állítsunk mást.
+            raise DeviceError(
+                f"{exc}\n\nA mentés eredménye bizonytalan: az eszköz lehet, hogy "
+                "elmentette a kiosztást. Csatlakozz újra, olvasd be, és ha nem az "
+                "van rajta, amit vártál, küldd el és mentsd újra.")
 
     def load_defaults(self):
         return self.command("DEFAULTS", timeout=3.0)
@@ -1260,12 +1280,24 @@ class App(ttk.Frame):
             return
         finally:
             self._busy(False)
+            self._sync_link_state()
 
         self.connect_btn.configure(text="Bontás")
         self._set_status(f"Csatlakozva: {port}  ({self.link.info})")
         if messagebox.askyesno("Beolvasás",
                                "Beolvassam az eszközön lévő jelenlegi kiosztást?"):
             self.on_read_device()
+
+    def _sync_link_state(self):
+        """A felület kövesse, ha közben elveszett a kapcsolat.
+
+        A DeviceLink egy port-hiba után magától lezárja magát; enélkül a gomb
+        továbbra is „Bontás"-t mutatna, és a felhasználó nem értené, miért
+        hibázik minden további művelet.
+        """
+        if not self.link.connected and self.connect_btn.cget("text") != "Csatlakozás":
+            self.connect_btn.configure(text="Csatlakozás")
+            self._set_status("A kapcsolat megszakadt – csatlakozz újra.", error=True)
 
     def _require_link(self):
         if not self.link.connected:
@@ -1287,6 +1319,7 @@ class App(ttk.Frame):
             return
         finally:
             self._busy(False)
+            self._sync_link_state()
         self._refresh_all_cells()
         self.dirty = False
         self._set_status("A kiosztás beolvasva az eszközről.")
@@ -1305,6 +1338,7 @@ class App(ttk.Frame):
             return
         finally:
             self._busy(False)
+            self._sync_link_state()
         self.dirty = False
         self._set_status("A kiosztás elküldve. Azonnal érvényes; a végleges "
                          "megőrzéshez mentsd az eszköz memóriájába.")
@@ -1320,6 +1354,7 @@ class App(ttk.Frame):
             return
         finally:
             self._busy(False)
+            self._sync_link_state()
         self._set_status("A kiosztás elmentve az eszköz memóriájába.")
 
     def on_device_defaults(self):
@@ -1339,6 +1374,7 @@ class App(ttk.Frame):
             return
         finally:
             self._busy(False)
+            self._sync_link_state()
         self._refresh_all_cells()
         self.dirty = False
         self._set_status("Gyári kiosztás betöltve az eszközre (még nincs elmentve).")

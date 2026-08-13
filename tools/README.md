@@ -438,6 +438,37 @@ másodpercenként újrapróbálja – amint a gomb felenged, elalszik. Így nem
 keletkezik újraindítási hurok; a gomb mechanikai javítása viszont ettől még
 szükséges, mert addig az eszköz ébren marad.
 
+### Ha a soros kapcsolat megszakad művelet közben
+
+| Mikor | Mi történik |
+|-------|-------------|
+| **Beolvasás** (`GET`) közben | A program hibát jelez, és **semmit nem változtat**: a képernyőn maradt kiosztás érintetlen. |
+| **Küldés** közben | A hibaüzenet megmondja, **hány beállítás ment ki** a 48-ból, tehát tudod, hogy az eszközön félig alkalmazott kiosztás van – csatlakozz újra és küldd el megint. |
+| **Mentés az eszköz memóriájába** közben | A parancs már kiment, csak a válasz veszett el, ezért a **mentés eredménye bizonytalan**: az eszköz akár el is menthette. A program ezt így is írja ki – csatlakozz újra, olvasd be, és ha nem az van rajta, amit vártál, küldd el és mentsd újra. |
+| **USB kihúzása** bontás nélkül | A program felismeri, hogy a port eltűnt, **magától lezárja a kapcsolatot**, a gomb visszavált „Csatlakozás"-ra, és a státuszsor kiírja, hogy a kapcsolat megszakadt. |
+
+Az eszköz oldalán a megszakadás nem hagy maga után rendetlenséget: a `SET`
+parancsok azonnal hatnak a memóriában, a flashbe csak a `SAVE` ír (az pedig
+áramszünet-biztos, lásd fentebb). Ha félbeszakadt a küldés, elég újra
+végigküldeni a kiosztást.
+
+### Mikor alszik el az eszköz
+
+15 perc (900 másodperc) tétlenség után. A számlálót **bármelyik gombnyomás és
+bármelyik soros parancs** nullázza. Mérve:
+
+| Állapot | Elalszik? |
+|---------|-----------|
+| Tétlen, akár BLE-vel csatlakoztatva | **igen**, 15 perc után |
+| Időnkénti gombnyomás | nem (ez a helyes) |
+| Időnkénti soros parancs | nem |
+| USB csatlakoztatva, de nincs forgalom | **igen** – az USB önmagában nem tartja ébren |
+| Beragadt gomb | igen: a beragadás felismerése (30 mp) után indul a 15 perces számláló |
+| Az **ébresztő gomb** (Gomb 2) nyomva | nem – szándékosan, mert az elalvás azonnali újraindulást okozna |
+
+> Az USB-ről táplált eszköz is elalszik 15 perc tétlenség után, és ilyenkor a
+> BLE kapcsolat is megszűnik. Egy gombnyomás felébreszti.
+
 ### Ha egy parancs küldése nem sikerül
 
 A BLE jelentések nem sorbaállított küldések: ha a rádiónak épp nincs szabad
