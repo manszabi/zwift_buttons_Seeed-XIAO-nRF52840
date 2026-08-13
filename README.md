@@ -14,6 +14,7 @@ Az eszköz 5 fizikai gombbal rendelkezik, és 3 különböző üzemmódot támog
 - **3 üzemmód** – Normál (Zwift), Verseny/Edzés, Média vezérlő
 - **Szabadon konfigurálható kiosztás** – Mind a 45 billentyű-kombináció (3 üzemmód × 5 gomb × 3 esemény) átállítható a mellékelt [Python konfiguráló programmal](tools/README.md), USB-n keresztül, újraprogramozás nélkül
 - **Állítható ismétlés** – Nyomva tartásnál beállítható az ismétlés sebessége, hogy külön leütésekként menjen-e (különben a számítógép a saját ütemében ismétel), és hogy a módosító nyomva maradjon-e (Alt+Tab ablakváltáshoz)
+- **Állítható küldési hossz** – Rövid nyomásnál és dupla kattintásnál megadható, hogy a parancs meddig menjen ki (50–5000 ms), ismétléssel vagy anélkül – például a telefon asszisztensének indításához, ami nyomva tartott gombot vár
 - **Üzemmód-mentés** – Az aktuális üzemmód a belső flash-memóriába mentődik, újraindítás után is megmarad
 - **Kiosztás-mentés** – A gomb-kiosztás is a belső flash-memóriába kerül (CRC-vel védve), újraindítás után is megmarad
 - **LED visszajelzés** – 3 szín (piros, kék, zöld) jelzi az aktuális üzemmódot
@@ -122,6 +123,11 @@ Az üzemmód automatikusan mentődik a belső fájlrendszerbe, így újraindít�
 | **Gomb 3** | ⏭ Következő szám | F10 | GUI+ALT+G *(csak PC)* |
 | **Gomb 4** | 🔇 Némítás | ⚙️ Üzemmód váltás | 🔉 Hangerő csökkentés (ismétlődő, 70 ms) |
 | **Gomb 5** | 🎵 Médialejátszó indítása | 1-9 nézet váltás (ciklikus) | 🔊 Hangerő növelés (ismétlődő, 70 ms) |
+
+> ⏱️ **Küldési hossz:** rövid nyomásnál és dupla kattintásnál minden cellánál
+> beállítható, hogy a parancs meddig menjen ki. Amíg tart, más gomb parancsa nem
+> megy ki. Hosszú nyomásnál ez nem értelmezett – ott a gomb elengedése zárja le
+> a küldést, a működés változatlan.
 
 > 🎙️ **Hangasszisztens:** a média billentyűk között választható a
 > *Hangasszisztens (Siri/Google)* és az *Asszisztens (Android)* kód is, így

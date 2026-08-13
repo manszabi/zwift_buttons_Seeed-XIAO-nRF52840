@@ -26,6 +26,9 @@ using namespace Adafruit_LittleFS_Namespace;
 
 
 void fct_Watchdog();
+// A fireAction() hamarabb hivja, mint ahol definialva van; statikus
+// fuggvenyhez az Arduino nem general automatikus prototipust.
+static void startBurst(const KeyAction& a);
 
 BLEDis bledis;
 BLEHidAdafruit blehid;
@@ -57,6 +60,16 @@ static int8_t repeatButton = -1;       // melyik gomb ismétel éppen (-1 = egyi
 static bool repeatDue = false;         // az első ismétlés azonnal menjen ki
 static bool repeatSentConsumer = false;  // az ismétlés média billentyűt küldött-e
 static unsigned long lastRepeatMillis = 0;
+
+// Időzített küldés (rövid / dupla nyomás). A hosszú nyomásnál a gomb
+// elengedése zárja le a küldést, itt viszont egy előre beállított idő. Amíg
+// tart, a duringLongpress jelző miatt más gomb parancsa nem mehet ki.
+// A repeatButton ezt kapja időzített küldés alatt: nem létező gomb sorszáma,
+// így az onLongDuring()/onLongStop() egyetlen valódi gombra sem egyezik rá.
+#define ZW_BURST_SLOT 100
+static bool burstActive = false;
+static unsigned long burstEndMillis = 0;
+static KeyAction burstAction;
 
 // Mit küld éppen az ismétlés. Nyomva tartás közben megváltozhat az üzemmód, és
 // vele a művelet is; ha a kiküldött billentyű vagy a célpont más lenne, az
@@ -183,6 +196,7 @@ void loop() {
   // A leütés-impulzus lezárása a gomb-tickek ELŐTT fut: így egy elhúzódó kör
   // után is kimegy a felengedés, mielőtt a következő ismétlés elindulna.
   updateRepeatTap();
+  updateBurst();
   updateButtons();
   handleSerial();
   pruneLostTargets();
@@ -417,7 +431,8 @@ void startAdv(void) {
 // érték a prototípusban ÉS a definícióban is szerepelve fordítási hibát ad.
 static void setAction(uint8_t mode, uint8_t btn, uint8_t evt,
                       uint8_t type, uint8_t modifier, uint16_t code,
-                      uint8_t repeat, uint16_t repeatMs, uint8_t target) {
+                      uint8_t repeat, uint16_t repeatMs, uint8_t target,
+                      uint16_t holdMs) {
   KeyAction& a = keymap.map[mode][btn][evt];
   a.type = type;
   a.modifier = modifier;
@@ -425,12 +440,19 @@ static void setAction(uint8_t mode, uint8_t btn, uint8_t evt,
   a.repeat = repeat;
   a.target = target;
   a.repeatMs = repeatMs;
+  a.holdMs = holdMs;
+}
+
+static void setAction(uint8_t mode, uint8_t btn, uint8_t evt,
+                      uint8_t type, uint8_t modifier, uint16_t code,
+                      uint8_t repeat, uint16_t repeatMs, uint8_t target) {
+  setAction(mode, btn, evt, type, modifier, code, repeat, repeatMs, target, 0);
 }
 
 static void setAction(uint8_t mode, uint8_t btn, uint8_t evt,
                       uint8_t type, uint8_t modifier, uint16_t code,
                       uint8_t repeat, uint16_t repeatMs) {
-  setAction(mode, btn, evt, type, modifier, code, repeat, repeatMs, 0);
+  setAction(mode, btn, evt, type, modifier, code, repeat, repeatMs, 0, 0);
 }
 
 // A gyári kiosztás: ugyanaz, ami korábban be volt drótozva a kódba.
@@ -569,15 +591,71 @@ static uint32_t keymapCrc(const KeymapConfig& cfg) {
   return zwCrc32((const uint8_t*)&cfg, sizeof(KeymapConfig) - sizeof(uint32_t));
 }
 
+// A 3-as (és korábbi) formátumú mentés átvétele. A mezők sorrendje azonos, csak
+// a bejegyzések rövidebbek és nincs bennük küldési hossz — az 0 lesz, ami épp a
+// korábbi viselkedést jelenti.
+static void migrateKeymapV3(const KeymapConfigV3& old) {
+  memset(&keymap, 0, sizeof(keymap));
+  keymap.magic = ZW_KEYMAP_MAGIC;
+  keymap.version = ZW_KEYMAP_VERSION;
+  keymap.entrySize = sizeof(KeyAction);
+  keymap.modes = ZW_NUM_MODES;
+  keymap.buttons = ZW_NUM_BUTTONS;
+  keymap.events = ZW_NUM_EVENTS;
+  keymap.slots = ZW_NUM_SLOTS;
+  for (uint8_t m = 0; m < ZW_NUM_MODES; m++) {
+    for (uint8_t b = 0; b < ZW_NUM_BUTTONS; b++) {
+      for (uint8_t e = 0; e < ZW_NUM_EVENTS; e++) {
+        const KeyActionV3& src = old.map[m][b][e];
+        KeyAction& dst = keymap.map[m][b][e];
+        dst.type = src.type;
+        dst.modifier = src.modifier;
+        dst.code = src.code;
+        dst.repeat = src.repeat;
+        dst.target = src.target;
+        dst.repeatMs = src.repeatMs;
+        dst.holdMs = 0;
+      }
+    }
+  }
+  memcpy(keymap.modeTarget, old.modeTarget, sizeof(keymap.modeTarget));
+  memcpy(keymap.peers, old.peers, sizeof(keymap.peers));
+  Serial.println("keymap: regi (3-as vagy korabbi) mentes atalakitva");
+}
+
 // Betöltés a belső fájlrendszerből. false = nincs vagy érvénytelen.
 bool loadKeymap() {
   Adafruit_LittleFS_Namespace::File f(InternalFS);
   if (!f.open(KEYMAPFILE, FILE_O_READ)) {
     return false;
   }
+  // A nagyobbik szerkezettel olvasunk: a régi mentés ennek az elejére kerül,
+  // így nem kell két külön puffert a veremben tartani.
   KeymapConfig tmp;
   uint32_t readlen = f.read((uint8_t*)&tmp, sizeof(tmp));
   f.close();
+
+  // Régi, 3-as (vagy korábbi) formátumú mentés: kisebb fájl, kisebb bejegyzések.
+  if (readlen == sizeof(KeymapConfigV3)) {
+    const KeymapConfigV3& old = *(const KeymapConfigV3*)&tmp;
+    if (old.magic != ZW_KEYMAP_MAGIC
+        || old.version < ZW_KEYMAP_MIN_VERSION || old.version > 3
+        || old.entrySize != sizeof(KeyActionV3)
+        || old.modes != ZW_NUM_MODES || old.buttons != ZW_NUM_BUTTONS
+        || old.events != ZW_NUM_EVENTS || old.slots != ZW_NUM_SLOTS) {
+      Serial.println("keymap: ismeretlen formatum");
+      return false;
+    }
+    if (zwCrc32((const uint8_t*)&old, sizeof(KeymapConfigV3) - sizeof(uint32_t))
+        != old.crc) {
+      Serial.println("keymap: CRC hiba");
+      return false;
+    }
+    uint16_t oldVersion = old.version;
+    migrateKeymapV3(old);
+    if (oldVersion < 3) migrateKeymapV2toV3();
+    return true;
+  }
 
   if (readlen != sizeof(tmp)) {
     Serial.println("keymap: hibas fajlmeret");
@@ -596,7 +674,6 @@ bool loadKeymap() {
     return false;
   }
   memcpy(&keymap, &tmp, sizeof(keymap));
-  if (tmp.version < 3) migrateKeymapV2toV3();
   Serial.println("keymap: betoltve a flash-bol");
   return true;
 }
@@ -726,6 +803,7 @@ void pruneLostTargets() {
 
   pressedTargetCount = kept;
   if (kept == 0) {
+    burstActive = false;
     repeatTapPending = false;
     hasKeyPressed = false;
     hasConsumerKeyPressed = false;
@@ -771,6 +849,13 @@ void updateRepeatTap() {
 // Egyszeri művelet végrehajtása (rövid / dupla / nem ismétlődő hosszú nyomás).
 static void fireAction(uint8_t btn, uint8_t evt) {
   const KeyAction& a = currentAction(btn, evt);
+  // Rövid és dupla nyomásnál beállítható, hogy a parancs meddig menjen ki; ezt
+  // külön állapotgép hajtja, mert a főciklust nem szabad blokkolni.
+  if (a.holdMs && (evt == EV_CLICK || evt == EV_DOUBLE)
+      && (a.type == ACT_KEY || a.type == ACT_CONSUMER)) {
+    startBurst(a);
+    return;
+  }
   switch (a.type) {
     case ACT_KEY:
       sendKeyboard(a.modifier, (uint8_t)a.code, targetMaskOf(a));
@@ -865,6 +950,18 @@ static void sendRepeat(const KeyAction& a) {
   duringLongpress = true;
 }
 
+// Két küldés közti idő. Külön leütéseknél a leütés-impulzusnak is be kell
+// férnie, ezért van alsó határ.
+static uint16_t repeatInterval(const KeyAction& a) {
+  uint16_t interval = a.repeatMs;
+  if (a.repeat & ZW_REPEAT_RELEASE) {
+    if (interval < repeatTapMs + 10) interval = repeatTapMs + 10;
+  } else if (interval == 0) {
+    interval = 60;
+  }
+  return interval;
+}
+
 static bool isRepeating(const KeyAction& a) {
   return (a.repeat & ZW_REPEAT_ENABLED) && (a.type == ACT_KEY || a.type == ACT_CONSUMER);
 }
@@ -908,21 +1005,66 @@ static void abortRepeat() {
   keyPressMillis = 0;
 }
 
+// Időzített küldés indítása (rövid / dupla nyomás). A hosszú nyomás ismétlés-
+// gépezetét használjuk, csak a leállás feltétele más: nem a gomb elengedése,
+// hanem a beállított idő letelte.
+static void startBurst(const KeyAction& a) {
+  uint16_t hold = a.holdMs;
+  if (hold > ZW_MAX_HOLD_MS) hold = ZW_MAX_HOLD_MS;
+
+  burstAction = a;
+  burstActive = true;
+  burstEndMillis = millis() + hold;
+  // A repeatButton egy nem létező gomb sorszámát kapja: így egyetlen gomb
+  // hosszú nyomása sem tudja véletlenül átvenni vagy lezárni ezt a küldést.
+  repeatButton = ZW_BURST_SLOT;
+  repeatDue = true;
+  lastRepeatMillis = millis();
+  sendRepeat(burstAction);   // az első küldés azonnal menjen ki
+}
+
+// A főciklusból hívjuk: fenntartja, majd a beállított idő végén lezárja a
+// rövid/dupla nyomáshoz tartozó küldést.
+void updateBurst() {
+  if (!burstActive) return;
+  unsigned long now = millis();
+
+  if ((long)(now - burstEndMillis) >= 0) {
+    burstActive = false;
+    finishRepeat();
+    return;
+  }
+
+  // Ismétlés nélkül egyetlen lenyomás tartja magát a küldés végéig, nem kell
+  // újraküldeni; külön leütéseknél viszont ütemezetten jönnek az újabbak.
+  if (!(burstAction.repeat & ZW_REPEAT_ENABLED)) return;
+
+  uint16_t interval = repeatInterval(burstAction);
+  if ((now - lastRepeatMillis) < interval) return;
+  lastRepeatMillis = now;
+  sendRepeat(burstAction);
+}
+
 static void onClick(uint8_t btn) {
   if (debugSerial) { Serial.print("Button "); Serial.print(btn + 1); Serial.println(" click."); }
   fct_WatchdogReset();
+  // Amíg egy időzített küldés tart, más parancs nem indulhat.
+  if (burstActive) return;
   fireAction(btn, EV_CLICK);
 }
 
 static void onDoubleClick(uint8_t btn) {
   if (debugSerial) { Serial.print("Button "); Serial.print(btn + 1); Serial.println(" doubleclick."); }
   fct_WatchdogReset();
+  // Amíg egy időzített küldés tart, más parancs nem indulhat.
+  if (burstActive) return;
   fireAction(btn, EV_DOUBLE);
 }
 
 static void onLongStart(uint8_t btn) {
   if (debugSerial) { Serial.print("Button "); Serial.print(btn + 1); Serial.println(" longPress start"); }
   fct_WatchdogReset();
+  if (burstActive) return;   // időzített küldés közben nem indul új művelet
   const KeyAction& a = currentAction(btn, EV_LONG);
   if (isRepeating(a)) {
     // Ha egy másik gomb ismétlése volt folyamatban (két gomb egyszerre
@@ -959,13 +1101,7 @@ static void onLongDuring(uint8_t btn) {
     return;
   }
 
-  // Külön leütéseknél a leütés-impulzusnak be kell férnie két ismétlés közé.
-  uint16_t interval = a.repeatMs;
-  if (a.repeat & ZW_REPEAT_RELEASE) {
-    if (interval < repeatTapMs + 10) interval = repeatTapMs + 10;
-  } else if (interval == 0) {
-    interval = 60;
-  }
+  uint16_t interval = repeatInterval(a);
 
   unsigned long now = millis();
   if (!repeatDue && (now - lastRepeatMillis) < interval) return;
@@ -1034,11 +1170,12 @@ void attachButtonCallbacks() {
 
 static void printMapLine(uint8_t m, uint8_t b, uint8_t e) {
   const KeyAction& a = keymap.map[m][b][e];
-  char line[64];
-  snprintf(line, sizeof(line), "MAP %u %u %u %u %u %u %u %u %u",
+  char line[72];
+  snprintf(line, sizeof(line), "MAP %u %u %u %u %u %u %u %u %u %u",
            (unsigned)m, (unsigned)b, (unsigned)e,
            (unsigned)a.type, (unsigned)a.modifier, (unsigned)a.code,
-           (unsigned)a.repeat, (unsigned)a.repeatMs, (unsigned)a.target);
+           (unsigned)a.repeat, (unsigned)a.repeatMs, (unsigned)a.target,
+           (unsigned)a.holdMs);
   Serial.println(line);
 }
 
@@ -1169,10 +1306,11 @@ static void cmdClearSlot(const char* args) {
 
 static void cmdSet(const char* args) {
   unsigned m, b, e, t, mod, code, rep, ms;
-  unsigned tgt = 0;  // elhagyható: 0 = az üzemmód célpontja érvényes
-  int got = sscanf(args, "%u %u %u %u %u %u %u %u %u",
-                   &m, &b, &e, &t, &mod, &code, &rep, &ms, &tgt);
-  if (got != 8 && got != 9) {
+  unsigned tgt = 0;   // elhagyható: 0 = az üzemmód célpontja érvényes
+  unsigned hold = 0;  // elhagyható: 0 = rövid impulzus (a korábbi viselkedés)
+  int got = sscanf(args, "%u %u %u %u %u %u %u %u %u %u",
+                   &m, &b, &e, &t, &mod, &code, &rep, &ms, &tgt, &hold);
+  if (got < 8 || got > 10) {
     Serial.println("ERR ARGS");
     return;
   }
@@ -1211,9 +1349,31 @@ static void cmdSet(const char* args) {
     Serial.println("ERR VALUE");
     return;
   }
+  // A küldési hossz csak a rövid és a dupla nyomásnál értelmes: hosszú
+  // nyomásnál a gomb elengedése zárja le a küldést. Némán ható nélküli
+  // beállítás helyett inkább visszautasítjuk.
+  if (hold && e == EV_LONG) {
+    Serial.println("ERR VALUE");
+    return;
+  }
+  if (hold > ZW_MAX_HOLD_MS) {
+    Serial.println("ERR VALUE");
+    return;
+  }
+  // Küldési hossza csak annak a műveletnek van, ami billentyűt vagy média
+  // kódot küld; a nézetváltás és az üzemmódváltás nem tartható nyomva.
+  if (hold && t != ACT_KEY && t != ACT_CONSUMER) {
+    Serial.println("ERR VALUE");
+    return;
+  }
+  // Ugyanígy: ismétlés-beállítás küldési hossz nélkül sem érvényesülne.
+  if (rep && !hold && e != EV_LONG) {
+    Serial.println("ERR VALUE");
+    return;
+  }
   setAction((uint8_t)m, (uint8_t)b, (uint8_t)e, (uint8_t)t, (uint8_t)mod,
             (uint16_t)code, (uint8_t)rep, (uint16_t)(ms == 0 ? 60 : ms),
-            (uint8_t)tgt);
+            (uint8_t)tgt, (uint16_t)hold);
   Serial.println("OK");
 }
 

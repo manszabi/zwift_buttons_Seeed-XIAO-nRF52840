@@ -59,6 +59,12 @@ REPEAT_MASK = REPEAT_ENABLED | REPEAT_RELEASE | REPEAT_HOLD_MOD
 # ismétlési időt nem tud tartani, és csendben felhúzná – lásd onLongDuring().
 REPEAT_MIN_MS_RELEASE = 30
 
+# A rövid és a dupla nyomásnál beállítható, hogy a parancs meddig menjen ki
+# (ms). 0 = a korábbi viselkedés, azaz egyetlen rövid impulzus. Amíg tart,
+# az eszköz más parancsot nem küld, ezért van felső határ (ZW_MAX_HOLD_MS).
+HOLD_MS_MAX = 5000
+HOLD_MS_MIN = 50
+
 
 # A műveletenkénti felülbírálás választéka (0 = az üzemmód célpontja).
 TARGET_INHERIT = 0

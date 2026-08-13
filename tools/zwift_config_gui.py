@@ -24,7 +24,8 @@ from hid_tables import (  # noqa: E402
     ACT_CONSUMER, ACT_KEY, ACT_MODE_NEXT, ACT_NONE, ACT_TYPE_COUNT, ACT_VIEW_CYCLE,
     CONSUMER_KEYS, CONSUMER_MAX_USAGE, DEFAULT_TARGETS, EVENT_KEYS, EVENT_NAMES, EV_LONG,
     KEY_CHOICES, KEY_NAMES, MODE_NAMES, MODIFIERS, MODIFIER_KEYSYMS,
-    REPEAT_ENABLED, REPEAT_HOLD_MOD, REPEAT_MASK, REPEAT_MIN_MS_RELEASE, REPEAT_RELEASE,
+    HOLD_MS_MAX, HOLD_MS_MIN, REPEAT_ENABLED, REPEAT_HOLD_MOD, REPEAT_MASK,
+    REPEAT_MIN_MS_RELEASE, REPEAT_RELEASE,
     SLOT_NAMES, TARGET_ALL, TARGET_CHOICES, TARGET_INHERIT, consumer_label,
     key_label, keysym_to_hid, target_label, target_short,
 )
@@ -43,10 +44,10 @@ NUM_MODES = 3
 NUM_BUTTONS = 5
 NUM_EVENTS = 3
 FILE_FORMAT = "zwift-buttons-keymap"
-FILE_VERSION = 4
+FILE_VERSION = 5
 NUM_SLOTS = 2
 # Ez a program legalább ilyen protokoll-verziójú firmware-t igényel.
-MIN_PROTO = 5
+MIN_PROTO = 6
 
 
 # ---------------------------------------------------------------------------
@@ -56,10 +57,11 @@ MIN_PROTO = 5
 class Action:
     """Egy (üzemmód, gomb, esemény) hármashoz tartozó művelet."""
 
-    __slots__ = ("type", "modifier", "code", "repeat", "repeat_ms", "target")
+    __slots__ = ("type", "modifier", "code", "repeat", "repeat_ms", "target",
+                 "hold_ms")
 
     def __init__(self, type=ACT_NONE, modifier=0, code=0, repeat=0, repeat_ms=60,
-                 target=TARGET_INHERIT):
+                 target=TARGET_INHERIT, hold_ms=0):
         self.type = type
         self.modifier = modifier
         self.code = code
@@ -67,6 +69,9 @@ class Action:
         self.repeat_ms = repeat_ms
         # 0 = az üzemmód célpontja érvényes; egyébként saját cél-maszk.
         self.target = target
+        # Csak rövid / dupla nyomásnál: meddig menjen ki a parancs (ms).
+        # 0 = a korábbi viselkedés, egyetlen rövid impulzus.
+        self.hold_ms = hold_ms
 
     def label(self) -> str:
         if self.type == ACT_KEY:
@@ -81,13 +86,22 @@ class Action:
             text = "—"
         # Az ismétlés csak billentyű/média műveletnél értelmes, a cél-felül-
         # bírálás viszont bármelyiknél – ezért az utóbbi nem térhet ki korán.
-        if (self.repeat & REPEAT_ENABLED) and self.type in (ACT_KEY, ACT_CONSUMER):
-            if self.repeat & REPEAT_RELEASE:
-                mode = ("külön leütések, módosító nyomva"
-                        if self.repeat & REPEAT_HOLD_MOD else "külön leütések")
-            else:
-                mode = "nyomva tartva"
-            text += f"  (ismétlő {self.repeat_ms} ms, {mode})"
+        if self.type in (ACT_KEY, ACT_CONSUMER):
+            parts = []
+            if self.hold_ms:
+                parts.append(f"{self.hold_ms} ms-ig")
+            if self.repeat & REPEAT_ENABLED:
+                if self.repeat & REPEAT_RELEASE:
+                    mode = ("külön leütések, módosító nyomva"
+                            if self.repeat & REPEAT_HOLD_MOD else "külön leütések")
+                else:
+                    mode = "nyomva tartva"
+                parts.append(f"ismétlő {self.repeat_ms} ms")
+                parts.append(mode)
+            elif self.hold_ms:
+                parts.append("végig nyomva")
+            if parts:
+                text += "  (" + ", ".join(parts) + ")"
         if self.target:
             text += f"  → {target_short(self.target)}"
         return text
@@ -100,6 +114,7 @@ class Action:
             "repeat": self.repeat,
             "repeat_ms": self.repeat_ms,
             "target": self.target,
+            "hold_ms": self.hold_ms,
         }
 
     @staticmethod
@@ -111,6 +126,7 @@ class Action:
             int(d.get("repeat", 0)),
             int(d.get("repeat_ms", 60)),
             int(d.get("target", TARGET_INHERIT)),
+            int(d.get("hold_ms", 0)),
         )
 
 
@@ -185,6 +201,20 @@ def validate_config(keymap, targets):
                     problems.append(f"{where}: érvénytelen ismétlési idő ({a.repeat_ms})")
                 if a.target and not 1 <= a.target <= TARGET_ALL:
                     problems.append(f"{where}: érvénytelen cél-felülbírálás ({a.target})")
+                # A küldési hossz csak a rövid és a dupla nyomásnál értelmes:
+                # hosszú nyomásnál a gomb elengedése zárja le a küldést.
+                if e == EV_LONG:
+                    if a.hold_ms:
+                        problems.append(
+                            f"{where}: hosszú nyomásnál nincs küldési hossz ({a.hold_ms})")
+                else:
+                    if a.hold_ms and not HOLD_MS_MIN <= a.hold_ms <= HOLD_MS_MAX:
+                        problems.append(
+                            f"{where}: a küldési hossz {HOLD_MS_MIN}–{HOLD_MS_MAX} ms "
+                            f"között lehet ({a.hold_ms})")
+                    if a.repeat and not a.hold_ms:
+                        problems.append(
+                            f"{where}: ismétlés beállítva, de nincs küldési hossz")
     return problems
 
 
@@ -344,7 +374,7 @@ class DeviceLink:
             if not line.startswith("MAP "):
                 continue
             parts = line.split()
-            if len(parts) not in (9, 10):
+            if len(parts) not in (9, 10, 11):
                 continue
             try:
                 values = [int(x) for x in parts[1:]]
@@ -352,9 +382,10 @@ class DeviceLink:
                 continue
             m, b, e, t, mod, code, rep, ms = values[:8]
             tgt = values[8] if len(values) > 8 else TARGET_INHERIT
+            hold = values[9] if len(values) > 9 else 0
             if m >= NUM_MODES or b >= NUM_BUTTONS or e >= NUM_EVENTS:
                 continue
-            keymap[m][b][e] = Action(t, mod, code, rep, ms, tgt)
+            keymap[m][b][e] = Action(t, mod, code, rep, ms, tgt, hold)
             seen += 1
         raise DeviceError("Időtúllépés a kiosztás beolvasása közben.")
 
@@ -390,7 +421,7 @@ class DeviceLink:
                 for e in range(NUM_EVENTS):
                     a = keymap[m][b][e]
                     send_step(f"SET {m} {b} {e} {a.type} {a.modifier} {a.code} "
-                              f"{a.repeat} {a.repeat_ms} {a.target}")
+                              f"{a.repeat} {a.repeat_ms} {a.target} {a.hold_ms}")
         for m in range(NUM_MODES):
             send_step(f"SETTARGET {m} {targets[m]}")
 
@@ -449,13 +480,16 @@ class DeviceLink:
 class ActionDialog(tk.Toplevel):
     """Modális ablak egy művelet beállításához, billentyű-felvétellel."""
 
-    def __init__(self, master, title, action, allow_repeat):
+    def __init__(self, master, title, action, event):
         tk.Toplevel.__init__(self, master)
         self.title(title)
         self.resizable(False, False)
         self.transient(master)
         self.result = None
-        self.allow_repeat = allow_repeat
+        # Hosszú nyomásnál a gomb elengedése zárja le a küldést, rövid és dupla
+        # nyomásnál viszont beállítható, hogy meddig menjen ki a parancs.
+        self.event = event
+        self.is_long = (event == EV_LONG)
 
         self._pressed_mods = set()
 
@@ -482,6 +516,7 @@ class ActionDialog(tk.Toplevel):
             or not (action.repeat & REPEAT_ENABLED) else 0)
         self.holdmod_var = tk.IntVar(value=1 if action.repeat & REPEAT_HOLD_MOD else 0)
         self.repeat_ms_var = tk.IntVar(value=action.repeat_ms or 60)
+        self.hold_ms_var = tk.IntVar(value=action.hold_ms)
         self.action_target_var = tk.IntVar(value=action.target)
 
         self._build()
@@ -560,42 +595,64 @@ class ActionDialog(tk.Toplevel):
         self.consumer_combo.pack(fill="x")
         self.consumer_combo.bind("<<ComboboxSelected>>", self._on_consumer_combo)
 
-        # Ismétlés (csak hosszú nyomásnál)
-        if self.allow_repeat:
-            self.repeat_box = ttk.LabelFrame(outer, text="Nyomva tartás", padding=8)
-            self.repeat_box.pack(fill="x", pady=(8, 0))
-            ttk.Checkbutton(self.repeat_box,
-                            text="Ismétlés, amíg nyomva tartod",
-                            variable=self.repeat_var,
-                            command=self._refresh_state).grid(row=0, column=0, sticky="w")
-            ttk.Label(self.repeat_box, text="Ismétlési idő (ms):").grid(
-                row=1, column=0, sticky="w", pady=(4, 0))
-            self.repeat_spin = ttk.Spinbox(self.repeat_box, from_=10, to=2000,
-                                           increment=10, width=8,
-                                           textvariable=self.repeat_ms_var,
-                                           command=self._update_preview)
-            self.repeat_spin.grid(row=1, column=1, sticky="w", padx=(8, 0), pady=(4, 0))
-            self.release_check = ttk.Checkbutton(
-                self.repeat_box,
-                text="Külön leütésekként (felengedés minden ismétlés után)",
-                variable=self.release_var, command=self._refresh_state)
-            self.release_check.grid(row=2, column=0, columnspan=2,
-                                    sticky="w", pady=(6, 0))
-            self.holdmod_check = ttk.Checkbutton(
-                self.repeat_box,
-                text="A módosító (Alt, Ctrl, …) maradjon nyomva – Alt+Tab-hoz kell",
-                variable=self.holdmod_var, command=self._update_preview)
-            self.holdmod_check.grid(row=3, column=0, columnspan=2,
-                                    sticky="w", padx=(18, 0))
-            ttk.Label(self.repeat_box, wraplength=430, foreground="#555555", text=(
-                "Külön leütések nélkül a billentyű végig lenyomva marad, és a "
-                "számítógép a saját ismétlési sebességével pörgeti – ilyenkor a "
-                "fenti idő nem érvényesül. A módosító nyomva tartása az Alt+Tab "
-                "ablakváltáshoz kell: a Windows csak addig lépked tovább, amíg "
-                "az Alt nyomva van, különben csak két ablak között vált.")).grid(
-                row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        # Küldés hossza és ismétlése
+        self.repeat_box = ttk.LabelFrame(
+            outer,
+            text="Nyomva tartás" if self.is_long else "A parancs küldésének hossza",
+            padding=8)
+        self.repeat_box.pack(fill="x", pady=(8, 0))
+
+        row = 0
+        if not self.is_long:
+            ttk.Label(self.repeat_box, text="Küldés hossza (ms):").grid(
+                row=row, column=0, sticky="w")
+            self.hold_spin = ttk.Spinbox(self.repeat_box, from_=0, to=HOLD_MS_MAX,
+                                         increment=50, width=8,
+                                         textvariable=self.hold_ms_var,
+                                         command=self._refresh_state)
+            self.hold_spin.grid(row=row, column=1, sticky="w", padx=(8, 0))
+            ttk.Label(self.repeat_box, foreground="#555555", wraplength=430,
+                      text=("0 = a szokásos rövid impulzus. Ennél hosszabb küldés "
+                            f"({HOLD_MS_MIN}–{HOLD_MS_MAX} ms) addig tartja a "
+                            "parancsot – például a telefon asszisztensének "
+                            "indításához. Amíg tart, más gomb parancsa nem megy "
+                            "ki.")).grid(row=row + 1, column=0, columnspan=2,
+                                         sticky="w", pady=(2, 6))
+            row += 2
         else:
-            self.repeat_box = None
+            self.hold_spin = None
+
+        ttk.Checkbutton(self.repeat_box,
+                        text=("Ismétlés, amíg nyomva tartod" if self.is_long
+                              else "Ismétlés a küldés alatt"),
+                        variable=self.repeat_var,
+                        command=self._refresh_state).grid(row=row, column=0, sticky="w")
+        ttk.Label(self.repeat_box, text="Ismétlési idő (ms):").grid(
+            row=row + 1, column=0, sticky="w", pady=(4, 0))
+        self.repeat_spin = ttk.Spinbox(self.repeat_box, from_=10, to=2000,
+                                       increment=10, width=8,
+                                       textvariable=self.repeat_ms_var,
+                                       command=self._update_preview)
+        self.repeat_spin.grid(row=row + 1, column=1, sticky="w", padx=(8, 0), pady=(4, 0))
+        self.release_check = ttk.Checkbutton(
+            self.repeat_box,
+            text="Külön leütésekként (felengedés minden ismétlés után)",
+            variable=self.release_var, command=self._refresh_state)
+        self.release_check.grid(row=row + 2, column=0, columnspan=2,
+                                sticky="w", pady=(6, 0))
+        self.holdmod_check = ttk.Checkbutton(
+            self.repeat_box,
+            text="A módosító (Alt, Ctrl, …) maradjon nyomva – Alt+Tab-hoz kell",
+            variable=self.holdmod_var, command=self._update_preview)
+        self.holdmod_check.grid(row=row + 3, column=0, columnspan=2,
+                                sticky="w", padx=(18, 0))
+        ttk.Label(self.repeat_box, wraplength=430, foreground="#555555", text=(
+            "Külön leütések nélkül a billentyű végig lenyomva marad, és a "
+            "számítógép a saját ismétlési sebességével pörgeti – ilyenkor a "
+            "fenti idő nem érvényesül. A módosító nyomva tartása az Alt+Tab "
+            "ablakváltáshoz kell: a Windows csak addig lépked tovább, amíg "
+            "az Alt nyomva van, különben csak két ablak között vált.")).grid(
+            row=row + 4, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
         # Cél-eszköz felülbírálás. Minden cellánál felkínáljuk; alapértelmezés az
         # üzemmódnál beállított célpont öröklése, így a beállítás csak akkor tér
@@ -699,6 +756,18 @@ class ActionDialog(tk.Toplevel):
 
     # -- állapot --
 
+    def _hold_ms(self):
+        """A beállított küldési hossz, a firmware határaira igazítva."""
+        if self.is_long:
+            return 0
+        try:
+            value = int(self.hold_ms_var.get())
+        except (tk.TclError, ValueError):
+            return 0
+        if value <= 0:
+            return 0
+        return min(max(value, HOLD_MS_MIN), HOLD_MS_MAX)
+
     def _current_modifier(self):
         modifier = 0
         for bit, _name in MODIFIERS:
@@ -730,25 +799,36 @@ class ActionDialog(tk.Toplevel):
                       if c == code), 0)
         self.consumer_combo.current(index)
 
-        if self.repeat_box is not None:
-            can_repeat = atype in (ACT_KEY, ACT_CONSUMER)
-            if not can_repeat:
-                self.repeat_var.set(0)
-            self._set_widget_state(self.repeat_box, "normal" if can_repeat else "disabled")
-            repeating = can_repeat and bool(self.repeat_var.get())
-            if not repeating:
-                # Ismétlés nélkül sem az idő, sem a leütés-mód nem értelmes.
-                self.repeat_spin.configure(state="disabled")
-            self.release_check.state(["!disabled"] if repeating else ["disabled"])
+        # A küldési hossz és az ismétlés csak billentyű/média műveletnél él.
+        sends_something = atype in (ACT_KEY, ACT_CONSUMER)
+        if not sends_something:
+            self.repeat_var.set(0)
+            if not self.is_long:
+                self.hold_ms_var.set(0)
+        self._set_widget_state(self.repeat_box,
+                               "normal" if sends_something else "disabled")
 
-            # A módosító nyomva tartását a firmware csak billentyű-műveletnél és
-            # csak külön leütések mellett veszi figyelembe; máshol félrevezető
-            # lenne felkínálni, mert a felirat olyat ígérne, ami nem történik meg.
-            hold_ok = (repeating and bool(self.release_var.get())
-                       and atype == ACT_KEY and self._current_modifier() != 0)
-            self.holdmod_check.state(["!disabled"] if hold_ok else ["disabled"])
-            if not hold_ok:
-                self.holdmod_var.set(0)
+        # Rövid/dupla nyomásnál az ismétlésnek csak akkor van értelme, ha a
+        # küldés tart is valameddig: egy pillanatnyi impulzus alatt nincs mit
+        # ismételni. A firmware ugyanezt a beállítást vissza is utasítja.
+        timed = self.is_long or self._hold_ms() > 0
+        can_repeat = sends_something and timed
+        if not can_repeat:
+            self.repeat_var.set(0)
+        repeating = can_repeat and bool(self.repeat_var.get())
+        if not repeating:
+            # Ismétlés nélkül sem az idő, sem a leütés-mód nem értelmes.
+            self.repeat_spin.configure(state="disabled")
+
+        # A módosító nyomva tartását a firmware csak billentyű-műveletnél és
+        # csak külön leütések mellett veszi figyelembe; máshol félrevezető
+        # lenne felkínálni, mert a felirat olyat ígérne, ami nem történik meg.
+        hold_ok = (repeating and bool(self.release_var.get())
+                   and atype == ACT_KEY and self._current_modifier() != 0)
+        self.release_check.state(["!disabled"] if repeating else ["disabled"])
+        self.holdmod_check.state(["!disabled"] if hold_ok else ["disabled"])
+        if not hold_ok:
+            self.holdmod_var.set(0)
 
         # Célpontja csak annak a műveletnek van, ami küld is valamit: a „Nincs
         # művelet" és az üzemmódváltás nem megy ki egyik eszközre sem.
@@ -770,7 +850,9 @@ class ActionDialog(tk.Toplevel):
 
     def _build_action(self):
         atype = self.type_var.get()
-        repeat = self.repeat_var.get() if self.repeat_box is not None else 0
+        hold_ms = self._hold_ms() if atype in (ACT_KEY, ACT_CONSUMER) else 0
+        # Rövid/dupla nyomásnál ismétlés csak küldési hossz mellett létezik.
+        repeat = self.repeat_var.get() if (self.is_long or hold_ms) else 0
         try:
             repeat_ms = int(self.repeat_ms_var.get())
         except (tk.TclError, ValueError):
@@ -778,7 +860,7 @@ class ActionDialog(tk.Toplevel):
         repeat_ms = min(max(repeat_ms, 10), 2000)
         if repeat:
             repeat = REPEAT_ENABLED
-            if self.repeat_box is not None and self.release_var.get():
+            if self.release_var.get():
                 repeat |= REPEAT_RELEASE
                 # A firmware ennél rövidebb időt úgysem tud tartani (a leütés
                 # impulzusának is be kell férnie), és csendben felhúzná — akkor
@@ -789,11 +871,11 @@ class ActionDialog(tk.Toplevel):
         target = self.action_target_var.get()
         if atype == ACT_KEY:
             return Action(ACT_KEY, self._current_modifier(), self.key_var.get(),
-                          repeat, repeat_ms, target)
+                          repeat, repeat_ms, target, hold_ms)
         if atype == ACT_CONSUMER:
             return Action(ACT_CONSUMER, 0, self.consumer_var.get(), repeat,
-                          repeat_ms, target)
-        return Action(atype, 0, 0, 0, repeat_ms, target)
+                          repeat_ms, target, hold_ms)
+        return Action(atype, 0, 0, 0, repeat_ms, target, 0)
 
     def _on_ok(self):
         action = self._build_action()
@@ -1076,7 +1158,7 @@ class App(ttk.Frame):
     def edit_cell(self, mode, button, event):
         title = f"{MODE_NAMES[mode]} – Gomb {button + 1} – {EVENT_NAMES[event]}"
         dialog = ActionDialog(self.master, title, self.keymap[mode][button][event],
-                              allow_repeat=(event == EV_LONG))
+                              event=event)
         self.master.wait_window(dialog)
         if dialog.result is not None:
             self.keymap[mode][button][event] = dialog.result

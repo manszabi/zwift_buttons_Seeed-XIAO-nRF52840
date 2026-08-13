@@ -52,14 +52,22 @@
 // eszköz eldobja, ezért a beállításnál visszautasítjuk.
 #define ZW_CONSUMER_MAX_USAGE 0x03FF
 
+// A rövid és a dupla nyomás küldési hosszának felső határa (ms). Amíg egy ilyen
+// küldés tart, más parancs nem mehet ki, ezért nem érdemes tetszőlegesen
+// hosszúra engedni.
+#define ZW_MAX_HOLD_MS 5000
+
 #define ZW_KEYMAP_MAGIC 0x4B42575AUL  // "ZWBK"
-// 3: a repeat mező bitmaszkká vált. A 2-es mentések betölthetők maradnak, a
-// firmware betöltéskor átalakítja őket (lásd migrateKeymapV2toV3).
-#define ZW_KEYMAP_VERSION 3
+// 3: a repeat mező bitmaszkká vált.
+// 4: a KeyAction kiegészült a holdMs mezővel (rövid/dupla nyomás küldési
+//    hossza), ezért a bejegyzés 8 helyett 10 bájt. A 2-es és 3-as mentések
+//    továbbra is betölthetők: a firmware betöltéskor átalakítja őket
+//    (lásd migrateKeymapV3, migrateKeymapV2toV3).
+#define ZW_KEYMAP_VERSION 4
 #define ZW_KEYMAP_MIN_VERSION 2
 
 // Az eszköz és a Python konfiguráló program közti protokoll verziója.
-#define ZW_PROTO_VERSION 5
+#define ZW_PROTO_VERSION 6
 
 // Üzemmódok. A sorszám egyben a keymap első indexe is.
 // (Azért itt, és nem a .ino-ban: az Arduino a vázlat elejére generálja a
@@ -88,18 +96,27 @@ enum ZwActionType : uint8_t {
 };
 
 // Egy (üzemmód, gomb, esemény) hármashoz tartozó művelet.
+//
+// Az ismétlés-beállítások mindhárom eseménynél ugyanazt jelentik, csak a
+// küldés HOSSZÁT más adja meg:
+//   EV_LONG            – amíg a gombot nyomva tartod (a holdMs nem játszik),
+//   EV_CLICK/EV_DOUBLE – pontosan holdMs ideig (0 = a régi rövid impulzus).
 struct __attribute__((packed)) KeyAction {
   uint8_t type;      // ZwActionType
   uint8_t modifier;  // KEYBOARD_MODIFIER_* bitmaszk (csak ACT_KEY esetén)
   uint16_t code;     // ACT_KEY: HID keycode, ACT_CONSUMER: consumer usage
-  // Csak EV_LONG esetén, ZW_REPEAT_* bitmaszk. A 0/1 érték a korábbi
-  // jelentésével egyezik, ezért a régi mentések változatlanul betölthetők.
+  // ZW_REPEAT_* bitmaszk. A 0/1 érték a korábbi jelentésével egyezik, ezért a
+  // régi mentések változatlanul betölthetők.
   uint8_t repeat;
   // Cél-eszköz felülbírálás: 0 = az üzemmód célpontja érvényes, egyébként
   // ZW_TARGET_* bitmaszk. (Korábban ez a bájt kihasználatlan volt és mindig
   // 0-ra íródott, ezért a régi mentések változtatás nélkül betölthetők.)
   uint8_t target;
   uint16_t repeatMs; // ismétlés két küldése közti idő (ms)
+  // Csak EV_CLICK / EV_DOUBLE: meddig tartson a küldés (ms). 0 = a korábbi
+  // viselkedés, azaz egyetlen rövid impulzus. Amíg tart, más gomb parancsa
+  // nem mehet ki.
+  uint16_t holdMs;
 };
 
 // Egy cél-eszköz azonosítása a BLE címe alapján. A kapcsolat-azonosítók
@@ -109,6 +126,17 @@ struct __attribute__((packed)) PeerSlot {
   uint8_t valid;     // 0 = üres fiók
   uint8_t addrType;  // ble_gap_addr_t.addr_type
   uint8_t addr[6];   // ble_gap_addr_t.addr (little endian, ahogy a SoftDevice adja)
+};
+
+// A 3-as (és korábbi) formátum bejegyzése: holdMs nélkül, 8 bájt. Csak a régi
+// mentések betöltéséhez kell, lásd loadKeymap().
+struct __attribute__((packed)) KeyActionV3 {
+  uint8_t type;
+  uint8_t modifier;
+  uint16_t code;
+  uint8_t repeat;
+  uint8_t target;
+  uint16_t repeatMs;
 };
 
 // A teljes, flash-be mentett konfiguráció.
@@ -125,6 +153,23 @@ struct __attribute__((packed)) KeymapConfig {
   uint8_t reserved;
   PeerSlot peers[ZW_NUM_SLOTS];
   uint32_t crc;  // CRC32 a struktúra elejétől a crc mezőig
+};
+
+// A 3-as formátum teljes szerkezete — a mezők sorrendje azonos, csak a
+// bejegyzések kisebbek. A régi mentés így beolvasható és átalakítható.
+struct __attribute__((packed)) KeymapConfigV3 {
+  uint32_t magic;
+  uint16_t version;
+  uint16_t entrySize;
+  uint8_t modes;
+  uint8_t buttons;
+  uint8_t events;
+  uint8_t slots;
+  KeyActionV3 map[ZW_NUM_MODES][ZW_NUM_BUTTONS][ZW_NUM_EVENTS];
+  uint8_t modeTarget[ZW_NUM_MODES];
+  uint8_t reserved;
+  PeerSlot peers[ZW_NUM_SLOTS];
+  uint32_t crc;
 };
 
 #endif  // ZWIFT_CONFIG_H

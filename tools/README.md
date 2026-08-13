@@ -55,8 +55,11 @@ Linuxon `sudo apt install python3-tk`), és a `pyserial` csomag.
      (lásd a *Hangasszisztens* fejezetet) stb.
    - **Üzemmód váltás** – a következő üzemmódra léptet.
    - **Zwift nézetváltás** – az 1…9 billentyűket küldi körbe.
-   - Hosszú nyomásnál beállítható az **ismétlés**, annak sebessége (ms), és
-     hogy **külön leütésekként** menjen-e (lásd lentebb).
+   - **Rövid nyomásnál és dupla kattintásnál** megadható, hogy a parancs
+     **meddig menjen ki** (küldés hossza ms-ban), és hogy közben ismételjen-e
+     (lásd lentebb).
+   - **Hosszú nyomásnál** beállítható az **ismétlés**, annak sebessége (ms), és
+     hogy **külön leütésekként** menjen-e.
    - Az ablak alján a cella **cél eszköze** is megadható – alapból az
      üzemmódnál beállított célpontot örökli (lásd *Egyedi cél gombonként*).
 5. Minden üzemmód fülén felül állítható a **cél eszköz**: csak a Windows PC,
@@ -68,6 +71,8 @@ A kiosztás **JSON fájlba** is menthető és onnan visszatölthető
 (*Mentés fájlba… / Megnyitás fájlból…*). A régebbi programmal mentett fájlok is
 betölthetők: a 4-esnél régebbi fájlverziónál az ismétlődő bejegyzések a
 *„külön leütések"* módra alakulnak, ahogy a firmware is teszi a saját mentésével.
+Az 5-ösnél régebbi fájlokból hiányzó küldési hossz 0 lesz, azaz a korábbi
+működés marad.
 
 A `default_keymap.json` a firmware gyári kiosztását tartalmazza; a program
 indításkor ezt tölti be, így eszköz nélkül is szerkeszthető egy kiosztás.
@@ -94,13 +99,13 @@ használható – minden parancs `Enter`-rel zárul.
 
 | Parancs | Válasz | Leírás |
 |---------|--------|--------|
-| `PING` | `OK ZWIFT_BUTTONS PROTO=5 MODES=3 BUTTONS=5 EVENTS=3 SLOTS=2 CONNS=2` | Eszköz azonosítás |
-| `GET` | 45 db `MAP …`, 3 db `TARGET …` sor, majd `END` | A teljes konfiguráció lekérése |
+| `PING` | `OK ZWIFT_BUTTONS PROTO=6 MODES=3 BUTTONS=5 EVENTS=3 SLOTS=2 CONNS=2` | Eszköz azonosítás |
+| `GET` | 45 db `MAP …` (10 mező), 3 db `TARGET …` sor, majd `END` | A teljes konfiguráció lekérése |
 | `SETTARGET <m> <maszk>` | `OK` / `ERR …` | Üzemmód cél-eszköze (1 = PC, 2 = telefon, 3 = mindkettő) |
 | `PEERS` | `SLOT …` / `CONN …` sorok, majd `END` | Fiókok és élő BLE kapcsolatok |
 | `ASSIGN <slot> <conn_hdl>` | `OK` / `ERR NOTBONDED` / `ERR …` | Élő kapcsolat hozzárendelése fiókhoz (csak párosítás után) |
 | `CLEARSLOT <slot>` | `OK` / `ERR …` | Fiók-hozzárendelés törlése |
-| `SET <m> <b> <e> <t> <mod> <code> <rep> <ms> [<tgt>]` | `OK` / `ERR …` | Egy bejegyzés beállítása |
+| `SET <m> <b> <e> <t> <mod> <code> <rep> <ms> [<tgt> [<hold>]]` | `OK` / `ERR …` | Egy bejegyzés beállítása |
 | `SAVE` | `OK SAVED` / `ERR SAVE` | Mentés a flash memóriába |
 | `LOAD` | `OK LOADED` / `ERR LOAD` | Visszatöltés a flash memóriából |
 | `DEFAULTS` | `OK DEFAULTS` | Gyári kiosztás betöltése (mentés nélkül) |
@@ -117,9 +122,10 @@ A `MAP` / `SET` mezői:
 | `t` – típus | 0 = nincs, 1 = billentyű, 2 = média, 3 = üzemmód váltás, 4 = nézetváltás |
 | `mod` | módosító bitmaszk: 1 = Ctrl, 2 = Shift, 4 = Alt, 8 = Win (jobb oldali: 16/32/64/128) |
 | `code` | HID keycode (típus 1, max. `255`) vagy consumer usage (típus 2, max. `1023` = `0x03FF`, mert a HID leíró eddig hirdet). Fölötte `ERR VALUE` |
-| `rep` | ismétlés bitmaszk (csak hosszú nyomásnál). Érvényes értékek: `0` = nincs, `1` = nyomva tartva, `3` = külön leütések, `7` = külön leütések + módosító nyomva. Egyéb kombináció `ERR VALUE` |
+| `rep` | ismétlés bitmaszk. Rövid/dupla nyomásnál csak `hold` mellett érvényes. Érvényes értékek: `0` = nincs, `1` = nyomva tartva, `3` = külön leütések, `7` = külön leütések + módosító nyomva. Egyéb kombináció `ERR VALUE` |
 | `ms` | ismétlési idő ezredmásodpercben. Külön leütéseknél (`rep` 3/7) a firmware 30 ms alá nem megy |
 | `tgt` | cél-felülbírálás: `0` = az üzemmód célpontja, egyébként `1`/`2`/`3`. A `SET`-nél elhagyható |
+| `hold` | **csak rövid és dupla nyomásnál, billentyű vagy média műveletnél**: meddig menjen ki a parancs (ms). `0` = a szokásos rövid impulzus, egyébként `50`…`5000`. Hosszú nyomásnál vagy más művelet-típusnál `ERR VALUE`. A `SET`-nél elhagyható |
 
 Példa: `SET 0 0 2 1 12 21 0 60` → Normál üzemmód, Gomb 1, hosszú nyomás =
 `Alt+Win+R` (mod 12 = 4|8, code 21 = 0x15 = `R`).
@@ -127,9 +133,32 @@ Példa: `SET 0 0 2 1 12 21 0 60` → Normál üzemmód, Gomb 1, hosszú nyomás 
 A kiosztás CRC32-vel védve, a `/keymap.bin` fájlban tárolódik. Sérült vagy
 hiányzó fájl esetén a firmware automatikusan a gyári kiosztást használja.
 
+## A parancs küldésének hossza (rövid és dupla nyomás)
+
+Alapesetben egy rövid vagy dupla nyomás egy pillanatnyi leütést küld. Néhány
+funkcióhoz viszont **nyomva tartott** gomb kell – például a telefon
+asszisztensének indításához. Ezért mind a 30 rövid/dupla cellánál beállítható,
+hogy a parancs meddig menjen ki:
+
+| Beállítás | Mit csinál |
+|-----------|------------|
+| **Küldés hossza = 0** *(gyári)* | egyetlen rövid impulzus, a korábbi működés |
+| **Küldés hossza = 50…5000 ms**, ismétlés nélkül | a billentyű végig **lenyomva marad** ennyi ideig, majd felengedődik |
+| **Küldés hossza + ismétlés** | a beállított ideig ismételget az *Ismétlési idő* szerint |
+| **+ Külön leütésekként** | minden ismétlés teljes leütés + felengedés |
+| **+ Módosító nyomva** | az `Alt`/`Ctrl`/`Win` a küldés végéig nyomva marad |
+
+**Amíg egy ilyen küldés tart, az eszköz semmilyen más parancsot nem küld ki:**
+a többi gomb rövid, dupla és hosszú nyomása is hatástalan, amíg a beállított idő
+le nem telik. Ezért van 5000 ms-os felső határ.
+
+A hosszú nyomásnál ez a mező **nem** jelenik meg, és a firmware vissza is
+utasítja: ott a küldést a gomb elengedése zárja le (lásd a következő fejezetet).
+
 ## Ismétlés nyomva tartáskor
 
-A hosszú nyomáshoz beállítható ismétlés kétféleképp működhet:
+A hosszú nyomás **működése változatlan**: amíg a gombot nyomva tartod, az eszköz
+ismétel. Az ismétlés itt is kétféleképp működhet:
 
 | Mód | `rep` | Mit lát a számítógép |
 |-----|-------|----------------------|
