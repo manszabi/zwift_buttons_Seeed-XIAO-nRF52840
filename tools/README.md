@@ -338,32 +338,41 @@ kimegy.
 
 ### Android
 
-Itt megbízhatóan működik. Az Android bemeneti rétege a `0x00CF`-et
+Az Android bemeneti rétege a `0x00CF`-et
 `KEY_VOICECOMMAND`-ként veszi át (Linux `hid-input.c`), amit az alapértelmezett
 kiosztás (`Generic.kl`) a `VOICE_ASSIST` gombra képez le – ez indítja a Google
 Segédet. A `0x01CB` ugyanígy `KEY_ASSISTANT` → `ASSIST` láncon fut.
 
 **Először a „Hangasszisztens (Siri/Google)" kódot próbáld**; ha a telefonod nem
-reagál rá, állítsd át „Desktop Assistant"-ra.
+reagál rá, állítsd át „Desktop Assistant"-ra. Ha egy rövid impulzusra csak a
+képernyő ébred fel, állíts be küldési hosszt (500 ms), ahogy az iPhone-nál.
+
+*(Ez a leképezés a Linux `hid-input.c` és az Android `Generic.kl` forrásából
+következik; Android készüléken nem próbáltam ki – iPhone-on igen.)*
 
 ### iPhone
 
-A `0x00CF` az a kód, amit a HID szabvány *„intended to start Siri"*
-megjegyzéssel lát el, **de BLE HID eszközről nem megbízható**. Az Apple
-fejlesztői fórumán több bejelentés szerint sem indul el tőle a Siri, és felmerül,
-hogy ehhez MFi tanúsítvány kellene. Nálam nincs iPhone a teszteléshez, ezért
-ezt **nem tudom garantálni** – érdemes egyszerűen kipróbálni.
+**Működik** – hardveren kipróbálva. A `0x00CF` elindítja a Sirit, de csak akkor,
+ha a parancs **elég hosszan** megy ki: egy pillanatnyi impulzusra az iPhone
+jellemzően csak a képernyőt ébreszti fel. Épp ezért van a *küldés hossza* mező.
 
-Ha nem megy, ezek a kerülő utak maradnak:
+Bevált beállítás:
 
-- **Home gomb nyomva tartása.** iOS-en a `0x0040` (Menü) és a billentyűzet
-  `Esc` gombja a Home gombként viselkedik; **nyomva tartva** a Siri jön elő.
-  Ez viszont csak fizikai Home gombos iPhone-okon működik, a Face ID-s
-  modelleken (iPhone X-től) nem.
-- **Nyomva tartáshoz** a hosszú nyomásnál kapcsold be az ismétlést
-  **„Nyomva tartva"** módban (`rep = 1`, a *„Külön leütésekként"* pipa
-  kikapcsolva). Enélkül a firmware 100 ms után felengedi a billentyűt, ami
-  rövid egy nyomva tartáshoz.
-- **Kimondott parancs helyett Parancsikon:** iPhone-on a „Keresés" média kód
-  (`0x0221`) a Spotlightot nyitja meg, ahonnan egy Parancsikon a nevének első
-  betűivel indítható.
+| Mező | Érték |
+|------|-------|
+| Művelet | **Média billentyű** → *Hangasszisztens (Siri/Google)* (`0x00CF`) |
+| Esemény | rövid nyomás vagy dupla kattintás (hosszú nyomásnál nincs küldési hossz) |
+| **Küldés hossza** | **500 ms** |
+| Ismétlés | kikapcsolva |
+| Cél eszköz | *Csak a telefonra* |
+
+Ennél hosszabb küldés is működhet; rövidebbnél viszont könnyen csak a képernyő
+ébred fel, a Siri nem indul el.
+
+> Érdemes tudni: az Apple fejlesztői fórumán több régebbi bejelentés szerint a
+> Siri BLE HID eszközről nem indítható, és felmerült, hogy MFi tanúsítvány
+> kellene hozzá. A gyakorlat ezt megcáfolta – a különbség a küldés hossza volt.
+
+Ha a te készülékeden mégsem indulna: próbálj hosszabb küldést (pl. 1000 ms),
+majd a *Desktop Assistant* (`0x01CB`) kódot. Feloldott, bekapcsolt képernyőn
+teszteld, mert lezárt képernyőről az asszisztens indítása gyakran tiltott.

@@ -57,7 +57,12 @@ ami a fejlesztőgépen lefordul, az eszközön viszont nem.
 
 ## Amit ezek a tesztek NEM helyettesítenek
 
-Valódi hardveren semmi nincs ellenőrizve: az Arduino IDE-s fordítás, a
-LittleFS viselkedése igazi flash memórián, a BLE párosítás és RAM-igény,
-valamint az USB soros időzítés. Feltöltés után ezeket kézzel érdemes
-kipróbálni.
+Ezek a tesztek a fejlesztőgépen futnak, nem az eszközön. Nem fedik le az
+Arduino IDE-s fordítást, a LittleFS viselkedését igazi flash memórián, a BLE
+párosítást és RAM-igényt, sem az USB soros időzítést – ezeket feltöltés után
+kézzel kell kipróbálni.
+
+A firmware jelenlegi állapota **valódi hardveren ellenőrzött**: Windows PC és
+telefon egyidejű kapcsolattal, a Siri indításával együtt. A tesztkészlet ettől
+függetlenül hasznos marad: a további módosításokat fogja meg, mielőtt az
+eszközre kerülnének.

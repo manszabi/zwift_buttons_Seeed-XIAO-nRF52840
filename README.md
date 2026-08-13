@@ -131,9 +131,9 @@ Az üzemmód automatikusan mentődik a belső fájlrendszerbe, így újraindít�
 
 > 🎙️ **Hangasszisztens:** a média billentyűk között választható a
 > *Hangasszisztens (Siri/Google)* és a *Desktop Assistant* kód is, így
-> bármelyik gombra rátehető a telefon asszisztensének indítása. Androidon
-> megbízhatóan működik; iPhone-on a Siri indítása BLE HID-ről nem garantált —
-> a részleteket és a kerülő utakat lásd a
+> bármelyik gombra rátehető a telefon asszisztensének indítása. **A Siri
+> iPhone-on 500 ms-os küldési hosszal indul el** – egy pillanatnyi impulzusra
+> jellemzően csak a képernyő ébred fel. Részletek a
 > [konfiguráló program leírásában](tools/README.md#hangasszisztens-siri--google-segéd).
 
 ---
@@ -178,8 +178,11 @@ Részletek és a soros protokoll leírása: [`tools/README.md`](tools/README.md)
 
 ## 🧪 Tesztek
 
-A repóban van egy **hardver nélkül futtatható tesztkészlet**, ami a valódi
-firmware-kódot és a valódi konfiguráló programot vizsgálja:
+A firmware **valódi hardveren ellenőrzött**: Windows PC és telefon egyidejű
+kapcsolattal, a telefon hangasszisztensének indításával együtt.
+
+Emellett a repóban van egy **hardver nélkül futtatható tesztkészlet**, ami a
+valódi firmware-kódot és a valódi konfiguráló programot vizsgálja:
 
 ```bash
 tools/tests/run_all.sh
