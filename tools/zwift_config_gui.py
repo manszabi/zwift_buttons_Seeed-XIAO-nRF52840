@@ -106,6 +106,34 @@ class Action:
             text += f"  → {target_short(self.target)}"
         return text
 
+    def cell_label(self, mode_target) -> str:
+        """A főképernyő celláinak rövid felirata.
+
+        Csak a lényeg: a kiküldött parancs, zárójelben hogy ismétlődik-e (és ha
+        van beállított küldési hossz, az is), végül nyíl után a parancs
+        célpontja. A célpont akkor is látszik, ha az üzemmódtól öröklődik –
+        ezért kell hozzá az üzemmód célja.
+        """
+        if self.type == ACT_KEY:
+            text = key_label(self.modifier, self.code)
+        elif self.type == ACT_CONSUMER:
+            text = consumer_label(self.code)
+        elif self.type == ACT_MODE_NEXT:
+            return "Üzemmód váltás"
+        elif self.type == ACT_VIEW_CYCLE:
+            text = "Nézetváltás (1-9)"
+        else:
+            return "—"
+
+        marks = []
+        if self.hold_ms:
+            marks.append(f"{self.hold_ms} ms")
+        if self.repeat & REPEAT_ENABLED:
+            marks.append("ismétlő")
+        if marks:
+            text += "  (" + ", ".join(marks) + ")"
+        return f"{text}  → {target_short(self.target or mode_target)}"
+
     def to_dict(self):
         return {
             "type": self.type,
@@ -1140,6 +1168,11 @@ class App(ttk.Frame):
     def _on_target_changed(self, mode):
         self.targets[mode] = self.target_vars[mode].get()
         self.dirty = True
+        # Az öröklődő cellák felirata az üzemmód célpontját mutatja, ezért az
+        # adott fül összes celláját újra kell írni.
+        for (m, b, e), btn in self.cells.items():
+            if m == mode:
+                btn.configure(text=self.keymap[m][b][e].cell_label(self.targets[m]))
         self._set_status(f"{MODE_NAMES[mode]}: {target_label(self.targets[mode])} – "
                          "a „Küldés az eszközre” gombbal lép érvénybe.")
 
@@ -1152,7 +1185,7 @@ class App(ttk.Frame):
 
     def _refresh_all_cells(self):
         for (m, b, e), btn in self.cells.items():
-            btn.configure(text=self.keymap[m][b][e].label())
+            btn.configure(text=self.keymap[m][b][e].cell_label(self.targets[m]))
         self._refresh_targets()
 
     def edit_cell(self, mode, button, event):
@@ -1162,7 +1195,8 @@ class App(ttk.Frame):
         self.master.wait_window(dialog)
         if dialog.result is not None:
             self.keymap[mode][button][event] = dialog.result
-            self.cells[(mode, button, event)].configure(text=dialog.result.label())
+            self.cells[(mode, button, event)].configure(
+                text=dialog.result.cell_label(self.targets[mode]))
             self.dirty = True
             self._set_status("Módosítva – a „Küldés az eszközre” gombbal lép érvénybe.")
 

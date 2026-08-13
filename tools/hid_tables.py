@@ -280,9 +280,10 @@ CONSUMER_KEYS = [
     #           Generic.kl a VOICE_ASSIST gombra képez le -> elindul a Segéd.
     #           Apple ezt jelöli meg a Siri indítására, de BLE HID-ről iPhone-on
     #           nem megbízható (lásd a tools/README.md megjegyzését).
-    #   0x01CB = „AL Context-aware Desktop Assistant" -> KEY_ASSISTANT -> ASSIST.
+    #   0x01CB = „AL Context-aware Desktop Assistant" -> KEY_ASSISTANT -> ASSIST
+    #           (a listában: Desktop Assistant).
     (0x00CF, "Hangasszisztens (Siri/Google)"),
-    (0x01CB, "Asszisztens (Android)"),
+    (0x01CB, "Desktop Assistant"),
     (0x0040, "Menü / Home gomb"),
     (0x0183, "Médialejátszó indítása"),
     (0x018A, "E-mail"),

@@ -130,7 +130,7 @@ Az üzemmód automatikusan mentődik a belső fájlrendszerbe, így újraindít�
 > a küldést, a működés változatlan.
 
 > 🎙️ **Hangasszisztens:** a média billentyűk között választható a
-> *Hangasszisztens (Siri/Google)* és az *Asszisztens (Android)* kód is, így
+> *Hangasszisztens (Siri/Google)* és a *Desktop Assistant* kód is, így
 > bármelyik gombra rátehető a telefon asszisztensének indítása. Androidon
 > megbízhatóan működik; iPhone-on a Siri indítása BLE HID-ről nem garantált —
 > a részleteket és a kerülő utakat lásd a

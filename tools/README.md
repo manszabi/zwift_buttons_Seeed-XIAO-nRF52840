@@ -81,6 +81,24 @@ indításkor ezt tölti be, így eszköz nélkül is szerkeszthető egy kiosztá
 > „Win” pipával érdemes beállítani a felvétel helyett. Ugyanez igaz az
 > `Alt+Tab`-ra.
 
+### A cellák felirata a főképernyőn
+
+A táblázat celláin csak a lényeg látszik, ebben a sorrendben:
+
+```
+Alt+Tab  (ismétlő)  → PC
+Hangasszisztens (Siri/Google)  (2000 ms)  → telefon
+Enter  → mindkettő
+```
+
+1. a **kiküldött parancs**,
+2. zárójelben a **küldési hossz** (ha be van állítva) és hogy **ismétlődik-e**,
+3. nyíl után a **parancs célpontja** – ez mindig ott van, öröklődés esetén is.
+
+A részletek (ismétlési idő, külön leütések, módosító nyomva tartása)
+szándékosan csak a szerkesztő ablakban jelennek meg. Az üzemmódváltás és a
+„nincs művelet" cella nem kap nyilat, mert nem küld semmit egyik eszközre sem.
+
 ## Fájlok
 
 | Fájl | Leírás |
@@ -236,8 +254,10 @@ dupla / hosszú nyomás), összesen 45 – kaphat saját célt, ami felülírja 
 | Csak a telefon | mindig a telefonra megy |
 | Mindkét eszköz | mindig mindkettőre megy |
 
-A cella felirata `→ PC` / `→ telefon` / `→ mindkettő` utótaggal jelzi, ha
-felülbírálás van érvényben. A választó letiltva jelenik meg a „Nincs művelet" és
+A főképernyő celláin a `→ PC` / `→ telefon` / `→ mindkettő` utótag **mindig**
+látszik: felülbírálásnál a beállított célt, egyébként az üzemmódtól örökölt
+célt mutatja. Az üzemmód célpontjának átállítása azonnal frissíti az öröklődő
+cellák feliratát. A választó letiltva jelenik meg a „Nincs művelet" és
 az „Üzemmód váltás" típusnál, mert ezek nem küldenek semmit egyik eszközre sem.
 
 **Gyárilag egyetlen kivétel van**, minden más cella örököl: a **Média vezérlő
@@ -275,7 +295,7 @@ célozza:
 | Listaelem | Usage | Mit vált ki |
 |-----------|-------|-------------|
 | **Hangasszisztens (Siri/Google)** | `0x00CF` | HID szabvány „Voice Command" |
-| **Asszisztens (Android)** | `0x01CB` | HID „Context-aware Desktop Assistant" |
+| **Desktop Assistant** | `0x01CB` | HID „Context-aware Desktop Assistant" |
 | **Menü / Home gomb** | `0x0040` | Home gomb (régebbi iPhone-okon) |
 
 Mivel az asszisztens a telefoné, érdemes a cellánál a **Cél eszköz** →
@@ -290,7 +310,7 @@ kiosztás (`Generic.kl`) a `VOICE_ASSIST` gombra képez le – ez indítja a Goo
 Segédet. A `0x01CB` ugyanígy `KEY_ASSISTANT` → `ASSIST` láncon fut.
 
 **Először a „Hangasszisztens (Siri/Google)" kódot próbáld**; ha a telefonod nem
-reagál rá, állítsd át „Asszisztens (Android)"-ra.
+reagál rá, állítsd át „Desktop Assistant"-ra.
 
 ### iPhone
 
