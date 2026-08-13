@@ -25,7 +25,14 @@ enum { AR_DEFAULT = 0, AR_INTERNAL_3_0 = 1 };
 inline void analogReference(int) {}
 inline void analogReadResolution(int) {}
 inline int analogRead(int) { return g_adcRaw; }
-inline void digitalWrite(int, int) {}
+// A kimeneti tuskek allapota. A valodi chipen a pinMode(OUTPUT) csak az iranyt
+// allitja, az OUT regisztert nem: az reset utan 0, tehat a lab LOW-ra all. Az
+// aktiv-alacsony LED-eknel ez azt jelenti, hogy KIGYULLAD, amig valaki HIGH-ra
+// nem irja. Ezert modellezzuk ugyanigy: pinMode(OUTPUT) LOW-ra allit.
+// Az OUT reset erteke 0, ezert a tomb is csupa false-szal indul: aki nem irta
+// meg HIGH-ra a labat, annal a LED vilagit.
+extern bool g_pinOut[32];  // true = HIGH, false = LOW (a LED-eknel: false = vilagit)
+inline void digitalWrite(int pin, int val) { if (pin >= 0 && pin < 32) g_pinOut[pin] = (val != LOW); }
 extern uint32_t g_ADigitalPinMap[32];
 typedef std::string String;
 struct SerialClass {

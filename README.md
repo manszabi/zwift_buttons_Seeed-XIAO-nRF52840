@@ -17,8 +17,8 @@ Az eszköz 5 fizikai gombbal rendelkezik, és 3 különböző üzemmódot támog
 - **Állítható küldési hossz** – Rövid nyomásnál és dupla kattintásnál megadható, hogy a parancs meddig menjen ki (50–5000 ms), ismétléssel vagy anélkül – például a telefon asszisztensének indításához, ami nyomva tartott gombot vár
 - **Üzemmód-mentés** – Az aktuális üzemmód a belső flash-memóriába mentődik, újraindítás után is megmarad
 - **Kiosztás-mentés** – A gomb-kiosztás is a belső flash-memóriába kerül (CRC-vel védve), újraindítás után is megmarad
-- **LED visszajelzés** – 3 szín (piros, kék, zöld) jelzi az aktuális üzemmódot; a LED **2 másodpercre villan fel** bekapcsoláskor és üzemmódváltáskor, utána elalszik (folyamatosan égve ez fogyasztaná a legtöbbet)
-- **Akkumulátor-szint** – az eszköz BLE-n jelenti a töltöttséget, így a telefon és a Windows is mutatja
+- **LED visszajelzés** – 3 szín (piros, kék, zöld) jelzi az aktuális üzemmódot; a LED **2 másodpercre villan fel** bekapcsoláskor és üzemmódváltáskor, utána elalszik (folyamatosan égve ez fogyasztaná a legtöbbet). Az eszköz sötéten indul: a felvillanás már az üzemmód valódi színe
+- **Akkumulátor-szint** – az eszköz BLE-n jelenti a töltöttséget, így a telefon és a Windows is mutatja; két csatlakozott gép esetén mindkettő megkapja a frissítést
 - **Hardveres watchdog** – ha a firmware valaha megakadna, a chip **10 másodperc után** magától újraindul; a mentett üzemmód és kiosztás miatt ez észrevétlen
 - **Hibatűrés** – a megszakadó BLE kapcsolat, az elveszett HID jelentés és a fizikailag beragadt gomb is kezelve van, hogy ne maradjon beragadt billentyű a számítógépnél ([részletek](tools/README.md#ha-megszakad-egy-kapcsolat))
 - **Automatikus kikapcsolás** – 900 másodperc (15 perc) inaktivitás után alvó módba lép az energiatakarékosság érdekében

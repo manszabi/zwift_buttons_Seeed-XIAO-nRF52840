@@ -50,7 +50,20 @@ inline void nrf_gpio_cfg_sense_input(uint32_t, int, int) {}
 // Akkumulator-szint szolgaltatas: a teszt a g_batteryPercent-bol olvassa ki,
 // mit jelentett az eszkoz.
 extern int g_batteryPercent;
-struct BLEBas { void begin() {} bool write(uint8_t p) { g_batteryPercent = p; return true; } };
+// Akkumulator-szolgaltatas. A valodi konyvtarban a write() a GATT adatbazisba ir
+// (kapcsolatfuggetlen), a notify(conn_hdl, ...) viszont egy adott kapcsolatnak
+// kuld ertesitest — a ketto kulon szamlalodik itt is.
+extern int g_batteryNotified[8];  // kapcsolatonkent utoljara ertesitett szazalek
+extern int g_batteryNotifyCount;
+struct BLEBas {
+  void begin() {}
+  bool write(uint8_t p) { g_batteryPercent = p; return true; }
+  bool notify(uint16_t conn_hdl, uint8_t p) {
+    if (conn_hdl < 8) g_batteryNotified[conn_hdl] = p;
+    g_batteryNotifyCount++;
+    return true;
+  }
+};
 struct BLEDis { void setManufacturer(const char*) {} void setModel(const char*) {} void begin() {} };
 struct KeyLog { uint8_t modifier; uint8_t code; bool consumer; uint16_t usage; };
 extern KeyLog g_lastKey;

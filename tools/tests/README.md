@@ -50,8 +50,9 @@ utánzata az Arduino, a Bluefruit BLE és a LittleFS API-nak:
 - a BLE kapcsolatok külön címmel és „bonded" állapottal rendelkeznek, a hirdetés
   pedig a valódi szabály szerint indul újra magától (csak ha **minden**
   kapcsolat megszűnt),
-- a gombok lábai olvashatók (`digitalRead`), tehát a bekapcsoláskor már nyomott
-  gomb is előállítható,
+- a gombok lábai olvashatók (`digitalRead`), a kimeneti lábak állapota pedig
+  visszakérdezhető – így a LED-ek tényleges ki/be állapota is ellenőrizhető,
+  nem csak egy jelzőbit,
 - a chip perifériáiból megvan a **watchdog** (`NRF_WDT`), az ADC
   (`analogRead`) és a **System OFF** hívás, így az újraindulás-védelem, az
   akkumulátor-mérés és az elalvás is ellenőrizhető,

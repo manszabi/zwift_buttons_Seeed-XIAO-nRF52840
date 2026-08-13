@@ -14,7 +14,7 @@ int g_keyReleaseCount = 0, g_consumerReleaseCount = 0;
 bool g_fsWriteFail = false; bool g_fsRenameFail = false; bool g_fsRemoveFail = false;
 std::vector<uint16_t> g_disconnected;
 uint8_t g_lastModifier = 0; uint8_t g_lastPressedCode = 0;
-int g_lastConnHdl = -1; int g_sentTo[8] = {0}; bool g_pinLow[32] = {false}; int g_systemOffCount = 0; int g_adcRaw = 0; int g_batteryPercent = -1;
+int g_lastConnHdl = -1; int g_sentTo[8] = {0}; bool g_pinLow[32] = {false}; bool g_pinOut[32] = {false}; int g_systemOffCount = 0; int g_adcRaw = 0; int g_batteryPercent = -1; int g_batteryNotified[8] = {-1,-1,-1,-1,-1,-1,-1,-1}; int g_batteryNotifyCount = 0;
 static WdtRegs g_wdtRegs; WdtRegs* NRF_WDT = &g_wdtRegs; int g_notifyFail = 0; int g_releasedTo[8]={0};
 FakeConn g_conns[4] = {};
 BluefruitStub Bluefruit; cbfn g_pendingCb = nullptr;

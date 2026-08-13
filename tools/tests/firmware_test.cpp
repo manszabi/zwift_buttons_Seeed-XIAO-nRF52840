@@ -19,7 +19,7 @@ int g_keyReleaseCount = 0, g_consumerReleaseCount = 0;
 bool g_fsWriteFail = false; bool g_fsRenameFail = false; bool g_fsRemoveFail = false;
 std::vector<uint16_t> g_disconnected;
 uint8_t g_lastModifier = 0; uint8_t g_lastPressedCode = 0;
-int g_lastConnHdl = -1; int g_sentTo[8] = {0}; bool g_pinLow[32] = {false}; int g_systemOffCount = 0; int g_adcRaw = 0; int g_batteryPercent = -1;
+int g_lastConnHdl = -1; int g_sentTo[8] = {0}; bool g_pinLow[32] = {false}; bool g_pinOut[32] = {false}; int g_systemOffCount = 0; int g_adcRaw = 0; int g_batteryPercent = -1; int g_batteryNotified[8] = {-1,-1,-1,-1,-1,-1,-1,-1}; int g_batteryNotifyCount = 0;
 static WdtRegs g_wdtRegs; WdtRegs* NRF_WDT = &g_wdtRegs; int g_notifyFail = 0; int g_releasedTo[8]={0};
 FakeConn g_conns[4] = {};
 BluefruitStub Bluefruit;
@@ -133,6 +133,55 @@ int main() {
 
   setup();
   std::cout << "-- setup lefutott, gyari kiosztas betoltve\n";
+
+  // R74) LED-ek. Ezt rogton a setup() utan kell nezni, mert a lenyeg eppen az
+  //      indulasi allapot. A LED-ek aktiv-alacsonyak: g_pinOut[pin] == false
+  //      azt jelenti, hogy a lab LOW, vagyis a LED VILAGIT.
+  {
+    const int LED_PIROS = 11, LED_KEK = 12, LED_ZOLD = 13;
+    // a) A setup() vegen egyik LED sem eghet. A pinMode(OUTPUT) onmagaban nem
+    //    allitja a lab szintjet, az OUT reset erteke 0 -> a lab LOW-ra allna,
+    //    es mind a harom LED vilagitana (feheren) az indulas hatralevo
+    //    reszeben, a BLE es a fajlrendszer inditasa alatt.
+    if (!g_pinOut[LED_PIROS] || !g_pinOut[LED_KEK] || !g_pinOut[LED_ZOLD]) {
+      std::cout << "HIBA R74: a setup() vegen vilagit LED (piros="
+                << !g_pinOut[LED_PIROS] << " kek=" << !g_pinOut[LED_KEK]
+                << " zold=" << !g_pinOut[LED_ZOLD] << ")\n";
+      return 1;
+    }
+
+    // b) Az elso updateLeds() az uzemmod szinet gyujtja ki - csak azt az egyet
+    const struct { uzemmod mod; int pin; const char* nev; } SZINEK[] = {
+      { normalUzemmod, LED_PIROS, "Normal -> piros" },
+      { versenyEdzesUzemmod, LED_KEK, "Verseny -> kek" },
+      { mediaVezerloUzemmod, LED_ZOLD, "Media -> zold" },
+    };
+    for (unsigned i = 0; i < sizeof(SZINEK)/sizeof(SZINEK[0]); i++) {
+      jelenlegiUzemmod = SZINEK[i].mod;
+      updateLeds();
+      int pinek[3] = { LED_PIROS, LED_KEK, LED_ZOLD };
+      for (int j = 0; j < 3; j++) {
+        bool kellVilagitson = (pinek[j] == SZINEK[i].pin);
+        if (g_pinOut[pinek[j]] == kellVilagitson) {   // false = vilagit
+          std::cout << "HIBA R74: " << SZINEK[i].nev << " - a " << pinek[j]
+                    << ". lab allapota rossz\n";
+          return 1;
+        }
+      }
+      // c) A beallitott ido utan elalszik, nem eg folyamatosan
+      g_millis += ZW_LED_ON_MS + 1;
+      updateLeds();
+      if (!g_pinOut[LED_PIROS] || !g_pinOut[LED_KEK] || !g_pinOut[LED_ZOLD]) {
+        std::cout << "HIBA R74: " << SZINEK[i].nev << " - a LED nem alszik el\n";
+        return 1;
+      }
+    }
+    jelenlegiUzemmod = normalUzemmod;
+    updateLeds();
+    g_millis += ZW_LED_ON_MS + 1;
+    updateLeds();
+  }
+  std::cout << "-- R74 LED: indulaskor sotet, majd az uzemmod szine villan fel\n";
 
   // A tobbi teszt egy elo kapcsolatot felteteléz (mint a valosagban, amikor
   // egy host csatlakozik). A 0-s handle-t hozzuk fel.
@@ -2035,6 +2084,69 @@ int main() {
     for (int i = 0; i < 10; i++) { g_millis += 30; loop(); }
   }
   std::cout << "-- R73 hozzarendeles nelkul mindket eszkoz megkap mindent\n";
+
+  // R75) Akkumulator-szint ket kapcsolattal. A helyi ertek kapcsolatfuggetlen,
+  //      az ertesitesnek viszont MINDEN elo kapcsolatra ki kell mennie: a
+  //      parameter nelkuli BLEBas::notify() a Bluefruit.connHandle()-t hasznalna,
+  //      ami csak egy kapcsolat (es a masik bontasakor is ervenytelenre allhat).
+  {
+    disconnectPeer(0); disconnectPeer(1);
+    connectPeer(0, 0xA0); connectPeer(1, 0xB0);
+    resetKeyState();
+
+    for (int i = 0; i < 8; i++) g_batteryNotified[i] = -1;
+    g_batteryNotifyCount = 0;
+    g_adcRaw = 1706;                    // ~3,7 V - mas, mint amit R72 hagyott
+    updateBatteryTest(true);
+    if (g_batteryNotified[0] != g_batteryPercent || g_batteryNotified[1] != g_batteryPercent) {
+      std::cout << "HIBA R75: nem minden kapcsolat kap ertesitest (hdl0="
+                << g_batteryNotified[0] << " hdl1=" << g_batteryNotified[1]
+                << " ertek=" << g_batteryPercent << ")\n";
+      return 1;
+    }
+
+    // b) Valtozatlan szazaleknal nincs ujabb ertesites (folosleges radioforgalom)
+    int elozoDb = g_batteryNotifyCount;
+    updateBatteryTest(true);
+    if (g_batteryNotifyCount != elozoDb) {
+      std::cout << "HIBA R75: valtozatlan ertek mellett is ertesit\n";
+      return 1;
+    }
+
+    // c) Ha az egyik kapcsolat kiesik, a masik tovabbra is kap ertesitest -
+    //    es nem az utoljara felepult kapcsolat kezelese donti el, hogy kap-e
+    disconnectPeer(1);
+    for (int i = 0; i < 8; i++) g_batteryNotified[i] = -1;
+    g_adcRaw = 1936;                    // ~4,2 V -> mas szazalek
+    updateBatteryTest(true);
+    if (g_batteryNotified[0] != g_batteryPercent) {
+      std::cout << "HIBA R75: a megmaradt kapcsolat nem kap ertesitest ("
+                << g_batteryNotified[0] << ")\n";
+      return 1;
+    }
+    if (g_batteryNotified[1] != -1) {
+      std::cout << "HIBA R75: a bontott kapcsolatra is megy ertesites\n";
+      return 1;
+    }
+
+    // d) Kapcsolat nelkul is frissul a helyi ertek (ezt olvassa ki a host
+    //    csatlakozaskor), de ertesites nem megy sehova
+    disconnectPeer(0);
+    g_batteryNotifyCount = 0;
+    g_adcRaw = 1521;                    // ~3,3 V
+    g_batteryPercent = -1;
+    updateBatteryTest(true);
+    if (g_batteryPercent < 0) {
+      std::cout << "HIBA R75: kapcsolat nelkul nem frissul a helyi ertek\n";
+      return 1;
+    }
+    if (g_batteryNotifyCount != 0) {
+      std::cout << "HIBA R75: kapcsolat nelkul is ertesit\n";
+      return 1;
+    }
+    connectPeer(0, 0xA0);
+  }
+  std::cout << "-- R75 akku-szint: minden elo kapcsolat kap ertesitest\n";
 
   std::cout << "\nMINDEN TESZT SIKERES\n";
   return 0;

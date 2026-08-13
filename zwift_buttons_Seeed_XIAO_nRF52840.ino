@@ -222,12 +222,40 @@ static uint8_t batteryPercent(uint16_t mv) {
   return 0;
 }
 
+// Amit utoljára ki is értesítettünk. 0xFF = még semmit (a százalék 0…100).
+static uint8_t lastBatteryPercent = 0xFF;
+
 static void updateBattery(bool force) {
   unsigned long now = millis();
   if (!force && (now - lastBatteryMillis) < ZW_BATTERY_UPDATE_MS) return;
   lastBatteryMillis = now;
-  uint16_t mv = readBatteryMillivolts();
-  blebas.write(batteryPercent(mv));
+  uint8_t pct = batteryPercent(readBatteryMillivolts());
+
+  // A helyi attribútum-érték frissítése. A BLEBas::write() a
+  // sd_ble_gatts_value_set()-et hívja BLE_CONN_HANDLE_INVALID-dal, tehát a GATT
+  // adatbázisba ír: kapcsolatfüggetlen. Ezért két csatlakozott eszköznél is
+  // ugyanazt az értéket olvassa ki mindkettő, a kapcsolat megszakadása pedig
+  // nem érinti — nincs mit "elveszíteni", nincs mit újrapróbálni.
+  blebas.write(pct);
+
+  if (pct == lastBatteryPercent) return;
+
+  // Az értesítés viszont már kapcsolatonkénti. A paraméter nélküli
+  // BLEBas::notify() a Bluefruit.connHandle()-t használná, ami CSAK EGY
+  // kapcsolatot jelent (az utoljára felépültet), sőt annak bontásakor akkor is
+  // érvénytelenre áll, ha a másik kapcsolat még él — két eszköznél tehát a
+  // rossz helyre vagy sehová sem menne. Ezért kézzel megyünk végig az élő
+  // kapcsolatokon, ugyanúgy, ahogy a HID jelentéseknél.
+  //
+  // Amíg egy parancs a levegőben van, kihagyjuk: az értesítés ugyanabból a
+  // kapcsolatonkénti HVN pufferből menne, mint a billentyű-jelentés, és nem ez
+  // a fontosabb. Egy perc múlva úgyis újra próbáljuk.
+  if (hasKeyPressed || hasConsumerKeyPressed || burstActive || duringLongpress) return;
+
+  lastBatteryPercent = pct;
+  for (uint8_t i = 0; i < ZW_MAX_CONNECTIONS; i++) {
+    if (connHandles[i] != BLE_CONN_HANDLE_INVALID) blebas.notify(connHandles[i], pct);
+  }
 }
 
 void QSPIF_sleep(void) {
@@ -256,7 +284,14 @@ void setup() {
   Serial.println("Done");
 
   watchDOG.start();
+  // A LED-ek aktív-alacsonyak, a pinMode(OUTPUT) viszont csak az irányt állítja:
+  // az OUT regiszter reset után 0, tehát a láb LOW-ra állna, és mind a három
+  // LED kigyulladna (fehéren) az indulás hátralévő részére — a BLE és a
+  // fájlrendszer indítása alatt. Ezért előbb írjuk HIGH-ra: a digitalWrite az
+  // OUTSET/OUTCLR regisztert állítja, ami bemenetként is érvényes, és a láb már
+  // magas szinttel vált kimenetre. Az üzemmód színét az első updateLeds() adja.
   for (int i = 0; i < numOfLeds; i++) {  //ledek
+    digitalWrite(ledPin[i], HIGH);
     pinMode(ledPin[i], OUTPUT);
   }
   for (int i = 0; i < numOfButtons; i++) {

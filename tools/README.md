@@ -455,14 +455,43 @@ végigküldeni a kiosztást.
 ### Akkumulátor, LED, watchdog
 
 **Akkumulátor-szint.** Az eszköz szabványos BLE Battery Service-en jelenti a
-töltöttséget (percenként frissítve), tehát a telefon Bluetooth-beállításaiban
-és a Windows eszközlistájában is látszik. A mérés a XIAO beépített
+töltöttséget (percenként mérve), tehát a telefon Bluetooth-beállításaiban és a
+Windows eszközlistájában is látszik. A mérés a XIAO beépített
 feszültségosztóján keresztül történik; a százalék a LiPo kisülési görbéjéhez
 igazított töréspontos táblázatból jön, nem egyszerű lineáris átváltásból.
+
+A töltöttség **két úton** jut el a géphez, és ez a kettő szándékosan
+különbözik:
+
+| | Mit csinál | Kapcsolathoz kötött? |
+|---|---|---|
+| **Helyi érték** (minden mérésnél) | a GATT adatbázisba írja a százalékot; ezt olvassa ki a host, amikor csatlakozik vagy rákérdez | **nem** – a SoftDevice hívása kapcsolat nélküli, ezért két eszköznél is ugyanazt olvassa mindkettő, és megszakadó kapcsolat sem érinti |
+| **Értesítés** (csak ha változott a százalék) | megkeresi az élő kapcsolatokat, és mindegyiknek külön kiküldi | **igen** – ezért kapcsolatonként megy ki |
+
+Az értesítés azért kapcsolatonkénti, mert a könyvtár paraméter nélküli
+változata **csak egyetlen** kapcsolatnak küldene: a legutóbb felépültnek. Sőt,
+ha az a kapcsolat megszakad, a könyvtár akkor is „nincs kapcsolat" állapotra
+áll, ha a másik eszköz még csatlakozva van – így a megmaradt gép semmit nem
+kapna. A firmware ezért ugyanúgy végigmegy az élő kapcsolatokon, ahogy a
+billentyű-parancsoknál.
+
+Két apróság, ami a rádiót védi: értesítés csak akkor megy ki, ha a százalék
+tényleg **megváltozott**, és akkor sem, ha épp egy parancs van a levegőben
+(billentyű lenyomva, ismétlés vagy időzített küldés fut) – ilyenkor a következő
+mérés viszi ki. Egy megszakadt kapcsolat itt sem okoz gondot: a könyvtár a már
+nem élő kapcsolatra egyszerűen nem küld semmit.
 
 **LED.** Az üzemmódot jelző LED **2 másodpercre villan fel** bekapcsoláskor és
 minden üzemmódváltáskor, utána elalszik. Folyamatosan égve ez fogyasztaná a
 legtöbbet az egész eszközön – nagyságrendekkel többet, mint maga a rádió.
+
+A LED-ek a XIAO-n **aktív-alacsonyak** (a láb LOW szintje gyújtja meg), a
+`pinMode(OUTPUT)` viszont csak az irányt állítja, a kimeneti szintet nem – az
+bekapcsolás után 0, vagyis LOW. Emiatt a lábak kimenetre váltásakor mind a
+három LED kigyulladna (fehéren), és úgy is maradna az indulás hátralévő
+részére, amíg a BLE és a fájlrendszer elindul. A firmware ezért **előbb magas
+szintre írja** a lábakat, és csak utána váltja kimenetre; így az eszköz sötéten
+indul, és az első villanás már az üzemmód valódi színe.
 
 **Hardveres watchdog.** Ha a firmware valaha megakadna (végtelen ciklus,
 holtpont), a chip **10 másodperc után magától újraindul**. Mivel az üzemmód és
