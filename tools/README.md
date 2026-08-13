@@ -307,9 +307,19 @@ az „Üzemmód váltás" típusnál, mert ezek nem küldenek semmit egyik eszk�
 
 Soros parancsból ugyanez a `SET` 9. mezője (lásd a protokoll-táblázatot).
 
-Ha egy kapcsolat menet közben megszakad, az eszköz elengedi a rá kiküldött
-billentyűket, és a folyamatban lévő ismétlést vagy időzített küldést lezárja –
-a következő gombnyomás már tiszta állapotból indul.
+### Ha megszakad egy kapcsolat
+
+| Helyzet | Mi történik |
+|---------|-------------|
+| Az egyik eszköz kiesik, a másik marad | A megmaradt eszköz **változatlanul kap** mindent; a kiesett célpont kikerül a lenyomás-nyilvántartásból, így rá már nem megy felengedés |
+| **Mindkét** eszköz kiesik | Az eszköz elengedi a kiküldött billentyűket, a folyamatban lévő ismétlést és időzített küldést lezárja – a következő gombnyomás tiszta állapotból indul |
+| Újracsatlakozás | A hirdetés **azonnal újraindul**, amint felszabadul egy hely; a kiesett eszköz magától vissza tud jönni |
+| Más kapcsolat-azonosítóval jön vissza | A fiók (PC / telefon) a **BLE címet** követi, nem a kapcsolat sorszámát – a parancsok oda mennek, ahová valók |
+| Párosítás nélkül csatlakozik | Amíg legalább egy fiók hozzá van rendelve, a hozzá nem rendelt eszköz **egyetlen parancsot sem kap**; a konfiguráló program „Eszközök hozzárendelése…" ablaka jelzi is |
+
+A hirdetés újraindítását a firmware maga végzi: a Bluefruit könyvtár csak akkor
+indítja újra magától, ha **minden** kapcsolat megszűnt, két eszköznél tehát
+enélkül a kieső eszköz nem tudna visszajönni, amíg a másik kapcsolat él.
 
 **Amíg egyik eszköz sincs hozzárendelve, minden gombnyomás mindkét
 kapcsolatra kimegy** — így az eszköz párosítás után azonnal használható.

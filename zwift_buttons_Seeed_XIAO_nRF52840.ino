@@ -285,12 +285,31 @@ void connect_callback(uint16_t conn_handle) {
 
 void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
   (void)reason;
+  uint8_t used = 0;
   for (uint8_t i = 0; i < ZW_MAX_CONNECTIONS; i++) {
     if (connHandles[i] == conn_handle) connHandles[i] = BLE_CONN_HANDLE_INVALID;
   }
+  for (uint8_t i = 0; i < ZW_MAX_CONNECTIONS; i++) {
+    if (connHandles[i] != BLE_CONN_HANDLE_INVALID) used++;
+  }
+
   if (debugSerial) {
     Serial.print("BLE bontva, conn_hdl=");
-    Serial.println(conn_handle);
+    Serial.print(conn_handle);
+    Serial.print(" (");
+    Serial.print(used);
+    Serial.print("/");
+    Serial.print(ZW_MAX_CONNECTIONS);
+    Serial.println(")");
+  }
+
+  // A hirdetést magunknak kell újraindítani, ha maradt még kapcsolat: a
+  // Bluefruit csak akkor teszi meg helyettünk, ha MINDEN kapcsolat megszűnt
+  // (BLEAdvertising.cpp, BLE_GAP_EVT_DISCONNECTED: "0 == Bluefruit.Periph.connected()").
+  // Enélkül két eszköz esetén a kieső eszköz soha nem tudna visszacsatlakozni,
+  // amíg a másik kapcsolat él.
+  if (used > 0 && used < ZW_MAX_CONNECTIONS && !Bluefruit.Advertising.isRunning()) {
+    Bluefruit.Advertising.start(0);
   }
   // A lenyomás-állapotot szándékosan NEM itt takarítjuk: az a főciklus
   // adata, ez a függvény pedig másik taskról fut. A pruneLostTargets() a

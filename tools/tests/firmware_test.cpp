@@ -71,20 +71,30 @@ static void longPressStop5(){cbLongStop((void*)4);}
 
 
 // Teszt-seged: egy BLE kapcsolat felepitese adott handle-lel es cimmel.
+// A SoftDevice a kapcsolat letrejottekor abbahagyja a hirdetest.
 static void connectPeer(uint16_t h, uint8_t addrPrefix, bool bonded = true) {
   g_conns[h].up = true;
   g_conns[h].bonded = bonded;
   g_conns[h].addr.addr_type = 1;
   for (int i = 0; i < 6; i++) g_conns[h].addr.addr[i] = (uint8_t)(addrPrefix + i);
+  Bluefruit.Advertising.stop();
   connect_callback(h);
 }
+// A bontast a konyvtar sajat kezeloje is latja: az CSAK akkor indit ujra
+// hirdetest, ha mar egyetlen kapcsolat sem maradt.
 static void disconnectPeer(uint16_t h) {
   g_conns[h].up = false;
   disconnect_callback(h, 0x13);
+  if (Bluefruit.connected() == 0 && Bluefruit.Advertising.restartOnDisc
+      && !Bluefruit.Advertising.isRunning()) {
+    Bluefruit.Advertising.start(0);
+  }
 }
 // A leutes-impulzus lezarasa. Elesben ezt a fociklus (updateRepeatTap) vegzi
 // repeatTapMs mulva; a tesztben kezzel leptetjuk az idot.
 static void settleTap() { g_millis += repeatTapMs + 1; updateRepeatTap(); }
+
+static int8_t slotOfConnTest(uint16_t h) { return slotOfConn(h); }
 
 static void resetKeyState() {
   hasKeyPressed = false; hasConsumerKeyPressed = false;
@@ -1538,6 +1548,65 @@ int main() {
   expect(send("SET 0 0 0 1 0 4 0 60 0 50"), "OK", "50 ms elfogadva");
   expect(send("SET 0 0 0 1 0 4 0 60 0 0"), "OK", "0 = rovid impulzus");
   std::cout << "-- R63 kapcsolat-veszte, ures celpont es hossz-hatar rendben\n";
+
+  // R64) Ket eszkoz: ha az EGYIK kiesik, tudjon-e visszacsatlakozni
+  loadDefaultKeymap();
+  send("CLEARSLOT 0"); send("CLEARSLOT 1");
+  disconnectPeer(0); disconnectPeer(1);
+  connectPeer(0, 0xA0); connectPeer(1, 0xB0);
+  assert(!Bluefruit.Advertising.isRunning());   // ket kapcsolat: nincs mit hirdetni
+  disconnectPeer(1);                            // a telefon kiesik
+  if (!Bluefruit.Advertising.isRunning()) {
+    std::cout << "HIBA R64: egy kapcsolat kiesese utan nem hirdet az eszkoz, "
+              << "a kiesett eszkoz nem tud visszacsatlakozni\n";
+    return 1;
+  }
+  connectPeer(1, 0xB0);                         // vissza is tud jonni
+  assert(Bluefruit.connected() == 2);
+  std::cout << "-- R64 egy kapcsolat kiesese utan ujra hirdet az eszkoz\n";
+
+  // R65) Ismetles kozben az EGYIK kapcsolat kiesik: a masik mukodjon tovabb
+  loadDefaultKeymap();
+  send("CLEARSLOT 0"); send("CLEARSLOT 1");
+  disconnectPeer(0); disconnectPeer(1);
+  connectPeer(0, 0xA0); connectPeer(1, 0xB0);
+  send("ASSIGN 0 0"); send("ASSIGN 1 1");
+  jelenlegiUzemmod = mediaVezerloUzemmod;    // G4 hosszu: mindket eszkozre
+  resetKeyState();
+  longPressStart4(); longPress4();
+  assert(g_sentTo[0] >= 1 && g_sentTo[1] >= 1);
+  disconnectPeer(1);                          // a telefon kiesik
+  loop();
+  assert(pressedTargetCount == 1);            // a PC megmarad celpontnak
+  {
+    int pcBefore = g_sentTo[0];
+    for (int i = 0; i < 6; i++) { g_millis += 100; longPress4(); }
+    if (g_sentTo[0] == pcBefore) {
+      std::cout << "HIBA R65: az egyik kapcsolat kiesese utan a masik sem kap\n";
+      return 1;
+    }
+  }
+  longPressStop4();
+  for (int i = 0; i < 10; i++) { g_millis += 50; loop(); }
+  assert(!hasKeyPressed && !hasConsumerKeyPressed && pressedTargetCount == 0);
+  std::cout << "-- R65 egy kapcsolat kiesese nem allitja le a masikat\n";
+
+  // R66) Visszacsatlakozas MAS kapcsolat-azonositoval: a fiok a BLE cim alapjan
+  disconnectPeer(0); disconnectPeer(1);
+  connectPeer(0, 0xB0);                       // a TELEFON jon vissza, de 0-s azonositoval
+  if (slotOfConnTest(0) != 1) {
+    std::cout << "HIBA R66: a telefon nem a sajat fiokjaba kerult (kapott: "
+              << (int)slotOfConnTest(0) << ")\n";
+    return 1;
+  }
+  jelenlegiUzemmod = normalUzemmod;           // Normal: csak a PC-re megy
+  resetKeyState();
+  click1();
+  if (g_sentTo[0] != 0) {
+    std::cout << "HIBA R66: a PC-nek szolo parancs a telefonra ment\n";
+    return 1;
+  }
+  std::cout << "-- R66 a fiok a BLE cimet koveti, nem a kapcsolat-azonositot\n";
 
   std::cout << "\nMINDEN TESZT SIKERES\n";
   return 0;

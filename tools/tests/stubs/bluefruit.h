@@ -100,9 +100,22 @@ class BLEConnection {
  private:
   uint16_t _h;
 };
-struct AdvStub { int startCount = 0; void addFlags(int){} void addTxPower(){} void addAppearance(int){}
-  void addService(BLEHidAdafruit&){} void addName(){} void restartOnDisconnect(bool){}
-  void setInterval(int,int){} void setFastTimeout(int){} void start(int){ startCount++; } void stop(){} };
+// A valodi BLEAdvertising viselkedeset koveti: a hirdetes befejezodik, amikor
+// letrejon egy kapcsolat, es a konyvtar CSAK akkor inditja ujra magatol, ha
+// mar egyetlen kapcsolat sem maradt (BLEAdvertising.cpp: BLE_GAP_EVT_DISCONNECTED
+// -> "0 == Bluefruit.Periph.connected()"). Ket kapcsolatnal ez lenyeges.
+struct AdvStub {
+  int startCount = 0;
+  bool running = false;
+  bool restartOnDisc = false;
+  void addFlags(int){} void addTxPower(){} void addAppearance(int){}
+  void addService(BLEHidAdafruit&){} void addName(){}
+  void restartOnDisconnect(bool e){ restartOnDisc = e; }
+  void setInterval(int,int){} void setFastTimeout(int){}
+  void start(int){ startCount++; running = true; }
+  void stop(){ running = false; }
+  bool isRunning(){ return running; }
+};
 struct PeriphStub {
   void setConnInterval(int,int){}
   void setConnectCallback(void(*f)(uint16_t)) { connectCb = f; }
