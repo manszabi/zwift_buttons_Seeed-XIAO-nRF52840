@@ -108,6 +108,7 @@ szándékosan csak a szerkesztő ablakban jelennek meg. Az üzemmódváltás és
 | `hid_tables.py` | HID billentyűkódok, média usage-ek, Tkinter keysym → HID leképezés |
 | `default_keymap.json` | A firmware gyári kiosztása |
 | `requirements.txt` | Python függőségek |
+| `tests/` | Hardver nélkül futtatható tesztkészlet – lásd [`tests/README.md`](tests/README.md) |
 
 ## Soros protokoll
 
@@ -143,7 +144,7 @@ A `MAP` / `SET` mezői:
 | `rep` | ismétlés bitmaszk. Rövid/dupla nyomásnál csak `hold` mellett érvényes. Érvényes értékek: `0` = nincs, `1` = nyomva tartva, `3` = külön leütések, `7` = külön leütések + módosító nyomva. Egyéb kombináció `ERR VALUE` |
 | `ms` | ismétlési idő ezredmásodpercben. Külön leütéseknél (`rep` 3/7) a firmware 30 ms alá nem megy |
 | `tgt` | cél-felülbírálás: `0` = az üzemmód célpontja, egyébként `1`/`2`/`3`. A `SET`-nél elhagyható |
-| `hold` | **csak rövid és dupla nyomásnál, billentyű vagy média műveletnél**: meddig menjen ki a parancs (ms). `0` = a szokásos rövid impulzus, egyébként `50`…`5000`. Hosszú nyomásnál vagy más művelet-típusnál `ERR VALUE`. A `SET`-nél elhagyható |
+| `hold` | **csak rövid és dupla nyomásnál, billentyű vagy média műveletnél**: meddig menjen ki a parancs (ms). `0` = a szokásos rövid impulzus, egyébként `50`…`5000` – a firmware a tartományon kívüli értéket `ERR VALUE`-val utasítja vissza, ahogy a hosszú nyomásra vagy más művelet-típusra adott hosszt is. A `SET`-nél elhagyható |
 
 Példa: `SET 0 0 2 1 12 21 0 60` → Normál üzemmód, Gomb 1, hosszú nyomás =
 `Alt+Win+R` (mod 12 = 4|8, code 21 = 0x15 = `R`).
@@ -168,7 +169,11 @@ hogy a parancs meddig menjen ki:
 
 **Amíg egy ilyen küldés tart, az eszköz semmilyen más parancsot nem küld ki:**
 a többi gomb rövid, dupla és hosszú nyomása is hatástalan, amíg a beállított idő
-le nem telik. Ezért van 5000 ms-os felső határ.
+le nem telik. Ezért van 5000 ms-os felső határ. Fordítva is igaz: amíg egy
+hosszú nyomás ismétlése fut, addig nem indul időzített küldés.
+
+Ha a beállított célpont épp nincs csatlakozva, a küldés el sem indul – ilyenkor
+a többi gomb változatlanul használható marad.
 
 A hosszú nyomásnál ez a mező **nem** jelenik meg, és a firmware vissza is
 utasítja: ott a küldést a gomb elengedése zárja le (lásd a következő fejezetet).

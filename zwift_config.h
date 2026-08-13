@@ -56,6 +56,10 @@
 // küldés tart, más parancs nem mehet ki, ezért nem érdemes tetszőlegesen
 // hosszúra engedni.
 #define ZW_MAX_HOLD_MS 5000
+// Ennél rövidebb küldésnek nincs értelme (a rendes rövid impulzus 100 ms), és a
+// konfiguráló program sem enged kisebbet – ha a firmware mégis elfogadná, a
+// program utána nem tudná visszaküldeni a kiosztást.
+#define ZW_MIN_HOLD_MS 50
 
 #define ZW_KEYMAP_MAGIC 0x4B42575AUL  // "ZWBK"
 // 3: a repeat mező bitmaszkká vált.

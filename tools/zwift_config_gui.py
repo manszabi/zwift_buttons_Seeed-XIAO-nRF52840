@@ -158,7 +158,7 @@ class Action:
         )
 
 
-def _parse_keymap_file(data):
+def _parse_keymap_file(data, notes=None):
     """JSON tartalom -> (keymap, célpontok). Hiba esetén kivételt dob.
 
     A régi (1-es, 2-es verziójú) fájlokból hiányzó mezők a gyári értéket
@@ -169,9 +169,14 @@ def _parse_keymap_file(data):
     látszik. A firmware a saját mentését betöltéskor átalakítja
     (migrateKeymapV2toV3); ugyanezt kell tennünk a fájlokkal is, különben egy
     régi mentés visszatöltése csendben visszahozná a hibás működést.
+
+    A 3-as fájlverzió sajnos kétértelmű: a „külön leütések" mód még ezzel a
+    verziószámmal jelent meg. Ezért az átalakítás nem lehet néma – ha történt,
+    a `notes` listába kerül egy üzenet, amit a hívó kiír a felhasználónak.
     """
     keymap = empty_keymap()
     targets = default_targets()
+    migrated = 0
     try:
         file_version = int(data.get("version", 1))
     except (TypeError, ValueError):
@@ -187,7 +192,13 @@ def _parse_keymap_file(data):
                     action = Action.from_dict(entry)
                     if file_version < 4 and action.repeat == REPEAT_ENABLED:
                         action.repeat |= REPEAT_RELEASE
+                        migrated += 1
                     keymap[m][b][e] = action
+    if migrated and notes is not None:
+        notes.append(
+            f"A fájl régi formátumú ({file_version}); {migrated} ismétlődő "
+            "bejegyzés „külön leütésekre” alakult. Ha valamelyiknél szándékosan "
+            "„nyomva tartva” volt, állítsd vissza.")
     return keymap, targets
 
 
@@ -236,6 +247,10 @@ def validate_config(keymap, targets):
                         problems.append(
                             f"{where}: hosszú nyomásnál nincs küldési hossz ({a.hold_ms})")
                 else:
+                    if a.hold_ms and a.type not in (ACT_KEY, ACT_CONSUMER):
+                        problems.append(
+                            f"{where}: küldési hossz csak billentyű vagy média "
+                            f"műveletnél adható meg")
                     if a.hold_ms and not HOLD_MS_MIN <= a.hold_ms <= HOLD_MS_MAX:
                         problems.append(
                             f"{where}: a küldési hossz {HOLD_MS_MIN}–{HOLD_MS_MAX} ms "
@@ -516,7 +531,6 @@ class ActionDialog(tk.Toplevel):
         self.result = None
         # Hosszú nyomásnál a gomb elengedése zárja le a küldést, rövid és dupla
         # nyomásnál viszont beállítható, hogy meddig menjen ki a parancs.
-        self.event = event
         self.is_long = (event == EV_LONG)
 
         self._pressed_mods = set()
@@ -650,11 +664,12 @@ class ActionDialog(tk.Toplevel):
         else:
             self.hold_spin = None
 
-        ttk.Checkbutton(self.repeat_box,
-                        text=("Ismétlés, amíg nyomva tartod" if self.is_long
-                              else "Ismétlés a küldés alatt"),
-                        variable=self.repeat_var,
-                        command=self._refresh_state).grid(row=row, column=0, sticky="w")
+        self.repeat_check = ttk.Checkbutton(
+            self.repeat_box,
+            text=("Ismétlés, amíg nyomva tartod" if self.is_long
+                  else "Ismétlés a küldés alatt"),
+            variable=self.repeat_var, command=self._refresh_state)
+        self.repeat_check.grid(row=row, column=0, sticky="w")
         ttk.Label(self.repeat_box, text="Ismétlési idő (ms):").grid(
             row=row + 1, column=0, sticky="w", pady=(4, 0))
         self.repeat_spin = ttk.Spinbox(self.repeat_box, from_=10, to=2000,
@@ -843,6 +858,8 @@ class ActionDialog(tk.Toplevel):
         can_repeat = sends_something and timed
         if not can_repeat:
             self.repeat_var.set(0)
+        # Enélkül a kapcsoló bekattintható maradna, majd magától visszaugrana.
+        self.repeat_check.state(["!disabled"] if can_repeat else ["disabled"])
         repeating = can_repeat and bool(self.repeat_var.get())
         if not repeating:
             # Ismétlés nélkül sem az idő, sem a leütés-mód nem értelmes.
@@ -1168,11 +1185,9 @@ class App(ttk.Frame):
     def _on_target_changed(self, mode):
         self.targets[mode] = self.target_vars[mode].get()
         self.dirty = True
-        # Az öröklődő cellák felirata az üzemmód célpontját mutatja, ezért az
-        # adott fül összes celláját újra kell írni.
-        for (m, b, e), btn in self.cells.items():
-            if m == mode:
-                btn.configure(text=self.keymap[m][b][e].cell_label(self.targets[m]))
+        # Az öröklődő cellák felirata az üzemmód célpontját mutatja, ezért újra
+        # kell írni őket.
+        self._refresh_all_cells()
         self._set_status(f"{MODE_NAMES[mode]}: {target_label(self.targets[mode])} – "
                          "a „Küldés az eszközre” gombbal lép érvénybe.")
 
@@ -1389,8 +1404,9 @@ class App(ttk.Frame):
             messagebox.showerror("Ismeretlen fájl",
                                  "Ez nem Zwift Buttons kiosztás-fájl.")
             return
+        notes = []
         try:
-            keymap, targets = _parse_keymap_file(data)
+            keymap, targets = _parse_keymap_file(data, notes)
         except (KeyError, TypeError, ValueError, IndexError) as exc:
             messagebox.showerror("Hibás fájl", f"A fájl tartalma hibás: {exc}")
             return
@@ -1400,6 +1416,10 @@ class App(ttk.Frame):
         # A betöltött tartalom megvan a fájlban, tehát kilépéskor nem veszne el;
         # az eszközre viszont még nem ment ki.
         self.dirty = False
+        if notes:
+            # A régi formátum átalakítása nem maradhat néma: a felhasználó
+            # szándékos beállítását is érintheti.
+            messagebox.showinfo("Régi kiosztás-fájl", "\n\n".join(notes))
         self._set_status(f"Betöltve: {path} – az eszközre külön kell elküldeni.")
 
     def _load_local_defaults(self):

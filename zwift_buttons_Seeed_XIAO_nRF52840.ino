@@ -455,6 +455,19 @@ static void setAction(uint8_t mode, uint8_t btn, uint8_t evt,
   setAction(mode, btn, evt, type, modifier, code, repeat, repeatMs, 0, 0);
 }
 
+// A mentés fejléce. Három helyen kell ugyanez (gyári kiosztás, mentés, régi
+// formátum átvétele), ezért egy helyen tartjuk: ha a formátum változik, itt kell
+// hozzányúlni, nem három párhuzamos másolatban.
+static void initKeymapHeader() {
+  keymap.magic = ZW_KEYMAP_MAGIC;
+  keymap.version = ZW_KEYMAP_VERSION;
+  keymap.entrySize = sizeof(KeyAction);
+  keymap.modes = ZW_NUM_MODES;
+  keymap.buttons = ZW_NUM_BUTTONS;
+  keymap.events = ZW_NUM_EVENTS;
+  keymap.slots = ZW_NUM_SLOTS;
+}
+
 // A gyári kiosztás: ugyanaz, ami korábban be volt drótozva a kódba.
 void loadDefaultKeymap() {
   // A cél-eszköz hozzárendelés (melyik a PC, melyik a telefon) túléli a gyári
@@ -464,13 +477,7 @@ void loadDefaultKeymap() {
 
   memset(&keymap, 0, sizeof(keymap));
   memcpy(keymap.peers, savedPeers, sizeof(savedPeers));
-  keymap.magic = ZW_KEYMAP_MAGIC;
-  keymap.version = ZW_KEYMAP_VERSION;
-  keymap.entrySize = sizeof(KeyAction);
-  keymap.modes = ZW_NUM_MODES;
-  keymap.buttons = ZW_NUM_BUTTONS;
-  keymap.events = ZW_NUM_EVENTS;
-  keymap.slots = ZW_NUM_SLOTS;
+  initKeymapHeader();
 
   // Cél-eszközök üzemmódonként: a Zwift vezérlés a PC-re megy, a média
   // vezérlés mindkét eszközre. A fiók-hozzárendelés (melyik a PC, melyik a
@@ -596,13 +603,7 @@ static uint32_t keymapCrc(const KeymapConfig& cfg) {
 // korábbi viselkedést jelenti.
 static void migrateKeymapV3(const KeymapConfigV3& old) {
   memset(&keymap, 0, sizeof(keymap));
-  keymap.magic = ZW_KEYMAP_MAGIC;
-  keymap.version = ZW_KEYMAP_VERSION;
-  keymap.entrySize = sizeof(KeyAction);
-  keymap.modes = ZW_NUM_MODES;
-  keymap.buttons = ZW_NUM_BUTTONS;
-  keymap.events = ZW_NUM_EVENTS;
-  keymap.slots = ZW_NUM_SLOTS;
+  initKeymapHeader();
   for (uint8_t m = 0; m < ZW_NUM_MODES; m++) {
     for (uint8_t b = 0; b < ZW_NUM_BUTTONS; b++) {
       for (uint8_t e = 0; e < ZW_NUM_EVENTS; e++) {
@@ -680,13 +681,7 @@ bool loadKeymap() {
 
 // Mentés a belső fájlrendszerbe.
 bool saveKeymap() {
-  keymap.magic = ZW_KEYMAP_MAGIC;
-  keymap.version = ZW_KEYMAP_VERSION;
-  keymap.entrySize = sizeof(KeyAction);
-  keymap.modes = ZW_NUM_MODES;
-  keymap.buttons = ZW_NUM_BUTTONS;
-  keymap.events = ZW_NUM_EVENTS;
-  keymap.slots = ZW_NUM_SLOTS;
+  initKeymapHeader();
   keymap.reserved = 0;
   keymap.crc = keymapCrc(keymap);
 
@@ -809,6 +804,10 @@ void pruneLostTargets() {
     hasConsumerKeyPressed = false;
     duringLongpress = false;
     repeatButton = -1;
+    repeatDue = false;
+    // A lenyomat is nullázandó: különben a következő ismétlés az ITT megszakadt
+    // művelettel hasonlítaná össze magát, és rögtön le is állna.
+    repeatType = ACT_NONE;
     keyPressMillis = 0;
   }
 }
@@ -911,8 +910,11 @@ static void sendRepeat(const KeyAction& a) {
     keyPressMillis = 0;
   }
 
+  // Egyszer számoljuk ki: menet közben változhat az üzemmód, és a két
+  // felhasználás akkor sem térhet el egymástól.
+  const uint8_t mask = targetMaskOf(a);
   uint16_t targets[ZW_MAX_CONNECTIONS];
-  uint8_t n = collectTargets(targetMaskOf(a), targets);
+  uint8_t n = collectTargets(mask, targets);
   if (n == 0) return;
 
   for (uint8_t i = 0; i < n; i++) {
@@ -929,7 +931,7 @@ static void sendRepeat(const KeyAction& a) {
   repeatType = a.type;
   repeatCode = a.code;
   repeatModifier = a.modifier;
-  repeatMask = targetMaskOf(a);
+  repeatMask = mask;
 
   if (a.repeat & ZW_REPEAT_RELEASE) {
     // Külön leütésekként küldjük: a HID jelentés a billentyű ÁLLAPOTÁT írja le,
@@ -1009,18 +1011,32 @@ static void abortRepeat() {
 // gépezetét használjuk, csak a leállás feltétele más: nem a gomb elengedése,
 // hanem a beállított idő letelte.
 static void startBurst(const KeyAction& a) {
+  // Amíg egy hosszú nyomás ismétlése vagy egy másik időzített küldés tart, nem
+  // indítunk újat: a célpont-listát felülírnánk, és a korábbi billentyű a saját
+  // célpontján felengedetlen maradna. Ugyanez a kizárás él a sendKeyboard()-ben
+  // is, csak az ismétlés-gépezet kerülné meg.
+  if (duringLongpress || burstActive) return;
+
   uint16_t hold = a.holdMs;
   if (hold > ZW_MAX_HOLD_MS) hold = ZW_MAX_HOLD_MS;
 
   burstAction = a;
-  burstActive = true;
-  burstEndMillis = millis() + hold;
   // A repeatButton egy nem létező gomb sorszámát kapja: így egyetlen gomb
   // hosszú nyomása sem tudja véletlenül átvenni vagy lezárni ezt a küldést.
   repeatButton = ZW_BURST_SLOT;
-  repeatDue = true;
   lastRepeatMillis = millis();
   sendRepeat(burstAction);   // az első küldés azonnal menjen ki
+
+  // Ha egyetlen célpont sem volt csatlakozva, ki sem ment semmi — ilyenkor nem
+  // indítjuk el a küldést, különben a beállított ideig fölöslegesen blokkolná
+  // az összes többi gombot (a sendKeyboard() ugyanígy csak visszatér).
+  if (pressedTargetCount == 0) {
+    repeatButton = -1;
+    duringLongpress = false;
+    return;
+  }
+  burstActive = true;
+  burstEndMillis = millis() + hold;
 }
 
 // A főciklusból hívjuk: fenntartja, majd a beállított idő végén lezárja a
@@ -1143,13 +1159,18 @@ void attachButtonCallbacks() {
 //
 // Sor alapú, ASCII. Minden parancs '\n'-nel zárul, minden válasz egy sor.
 //
-//   PING                                        -> OK ZWIFT_BUTTONS PROTO=5 ...
+//   PING                                        -> OK ZWIFT_BUTTONS PROTO=6 ...
 //   GET                                         -> MAP ... (45 sor) + END
-//   SET <m> <b> <e> <t> <mod> <code> <rep> <ms> [<tgt>] -> OK
+//   SET <m> <b> <e> <t> <mod> <code> <rep> <ms> [<tgt> [<hold>]] -> OK
 //
-//   rep: ismétlés bitmaszk (csak hosszú nyomásnál) — 1 = ismétlés be,
-//        2 = felengedés az ismétlések között, 4 = a módosító nyomva marad
-//        (csak a 2 mellett). Használható értékek: 0, 1, 3, 7.
+//   rep: ismétlés bitmaszk — 1 = ismétlés be, 2 = felengedés az ismétlések
+//        között, 4 = a módosító nyomva marad (csak a 2 mellett). Használható
+//        értékek: 0, 1, 3, 7. Rövid/dupla nyomásnál csak hold mellett érvényes.
+//   hold: csak rövid és dupla nyomásnál (billentyű vagy média műveletnél):
+//        meddig menjen ki a parancs, ms-ban. 0 = a szokásos rövid impulzus,
+//        egyébként 50..5000. Hosszú nyomásnál ERR VALUE, mert ott a gomb
+//        elengedése zárja le a küldést. Amíg egy ilyen küldés tart, más
+//        parancs nem megy ki.
 //   SAVE                                        -> OK SAVED | ERR SAVE
 //   LOAD                                        -> OK LOADED | ERR LOAD
 //   DEFAULTS                                    -> OK DEFAULTS
@@ -1159,8 +1180,9 @@ void attachButtonCallbacks() {
 //   GET valasza a MAP sorok utan uzemmodonkent egy TARGET <m> <maszk> sort is
 //   tartalmaz (maszk: 1 = PC, 2 = telefon, 3 = mindketto).
 //
-//   A MAP/SET utolso mezoje (tgt) muveletenkenti cel-felulbiralas: 0 eseten az
-//   uzemmod celpontja ervenyes, egyebkent ez a maszk. A SET-nel elhagyhato.
+//   A tgt mezo muveletenkenti cel-felulbiralas: 0 eseten az uzemmod celpontja
+//   ervenyes, egyebkent ez a maszk. A tgt es a hold a SET-nel elhagyhato; a
+//   MAP mindig mind a 10 mezot kiirja.
 //
 //   SETTARGET <m> <maszk>                       -> OK
 //   PEERS                                       -> SLOT/CONN sorok + END
@@ -1356,7 +1378,7 @@ static void cmdSet(const char* args) {
     Serial.println("ERR VALUE");
     return;
   }
-  if (hold > ZW_MAX_HOLD_MS) {
+  if (hold && (hold < ZW_MIN_HOLD_MS || hold > ZW_MAX_HOLD_MS)) {
     Serial.println("ERR VALUE");
     return;
   }

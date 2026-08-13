@@ -172,6 +172,19 @@ Részletek és a soros protokoll leírása: [`tools/README.md`](tools/README.md)
 
 ---
 
+## 🧪 Tesztek
+
+A repóban van egy **hardver nélkül futtatható tesztkészlet**, ami a valódi
+firmware-kódot és a valódi konfiguráló programot vizsgálja:
+
+```bash
+tools/tests/run_all.sh
+```
+
+Részletek: [`tools/tests/README.md`](tools/tests/README.md).
+
+---
+
 ## 📦 Szükséges könyvtárak (Arduino)
 
 A következő könyvtárak szükségesek a fordításhoz:

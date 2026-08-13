@@ -1,2 +1,7 @@
 __pycache__/
 *.pyc
+
+# A tesztek lefordított bináriái (tools/tests/run_all.sh hozza létre)
+tools/tests/firmware_test
+tools/tests/bridge
+tools/tests/single_conn
