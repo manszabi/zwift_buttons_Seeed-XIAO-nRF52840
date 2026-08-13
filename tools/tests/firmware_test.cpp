@@ -19,7 +19,7 @@ int g_keyReleaseCount = 0, g_consumerReleaseCount = 0;
 bool g_fsWriteFail = false; bool g_fsRenameFail = false; bool g_fsRemoveFail = false;
 std::vector<uint16_t> g_disconnected;
 uint8_t g_lastModifier = 0; uint8_t g_lastPressedCode = 0;
-int g_lastConnHdl = -1; int g_sentTo[8] = {0}; int g_releasedTo[8]={0};
+int g_lastConnHdl = -1; int g_sentTo[8] = {0}; int g_notifyFail = 0; int g_releasedTo[8]={0};
 FakeConn g_conns[4] = {};
 BluefruitStub Bluefruit;
 cbfn g_pendingCb = nullptr;
@@ -1607,6 +1607,56 @@ int main() {
     return 1;
   }
   std::cout << "-- R66 a fiok a BLE cimet koveti, nem a kapcsolat-azonositot\n";
+
+  // R67) Elveszett HID-ertesites: a felengedes ujrakuldese
+  // A valodi BLECharacteristic::notify() nem sorol be es nem probalkozik ujra,
+  // ezert egy eldobott FELENGEDES a hostnal beragadt billentyu lenne.
+  loadDefaultKeymap();
+  send("CLEARSLOT 0"); send("CLEARSLOT 1");
+  disconnectPeer(0); disconnectPeer(1);
+  connectPeer(0, 0xA0);
+  jelenlegiUzemmod = normalUzemmod;
+  resetKeyState();
+  click1();
+  assert(g_keyCount == 1);
+  g_notifyFail = 1;                     // a kovetkezo kuldes (a felengedes) elveszik
+  for (int i = 0; i < 20; i++) { g_millis += 30; loop(); }
+  if (g_keyReleaseCount == 0) {
+    std::cout << "HIBA R67: az elveszett felengedest nem kuldi ujra, "
+              << "a billentyu beragad a hoston\n";
+    return 1;
+  }
+  assert(!hasKeyPressed && pressedTargetCount == 0);
+
+  // b) Ha a LENYOMAS veszik el, ne jegyezzuk fel celpontnak
+  resetKeyState();
+  g_notifyFail = 1;
+  click2();
+  if (hasKeyPressed || pressedTargetCount != 0) {
+    std::cout << "HIBA R67: el nem kuldott lenyomast is nyilvantart\n";
+    return 1;
+  }
+  for (int i = 0; i < 10; i++) { g_millis += 30; loop(); }
+  if (g_keyReleaseCount != 0) {
+    std::cout << "HIBA R67: felengedest kuld olyan billentyure, ami sosem ment ki\n";
+    return 1;
+  }
+
+  // c) Tartos hiba eseten se ragadjon be az eszkoz orokre
+  resetKeyState();
+  click1();
+  assert(hasKeyPressed);
+  g_notifyFail = 1000;                  // minden tovabbi kuldes elbukik
+  for (int i = 0; i < 60; i++) { g_millis += 30; loop(); }
+  if (hasKeyPressed || pressedTargetCount != 0) {
+    std::cout << "HIBA R67: tartos kuldesi hiba eseten vegleg beragad az allapot\n";
+    return 1;
+  }
+  g_notifyFail = 0;
+  resetKeyState();
+  click2(); 
+  assert(g_keyCount == 1);              // utana ujra mukodik
+  std::cout << "-- R67 elveszett ertesites: felengedes ujrakuldve, lenyomas nem hazudik\n";
 
   std::cout << "\nMINDEN TESZT SIKERES\n";
   return 0;

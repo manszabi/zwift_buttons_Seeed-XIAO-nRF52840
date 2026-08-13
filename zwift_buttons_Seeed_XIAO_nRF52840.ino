@@ -811,22 +811,36 @@ static bool hidSameAsHeld(bool consumer, uint8_t modifier, uint16_t code,
   return true;
 }
 
+// Egy elveszett felengedés a hostnál BERAGADT billentyű, ezért újrapróbáljuk.
+// A SoftDevice-nak elfogyhatnak a szabad küldési pufferei, és a Bluefruit
+// ilyenkor egyszerűen eldobja a jelentést: a BLECharacteristic::notify() nem
+// sorol be és nem próbálkozik újra, csak false-szal tér vissza. Korlátos
+// számú próbálkozás után feladjuk, hogy egy néma kapcsolat ne bénítsa meg az
+// eszközt (a kapcsolat bontását a pruneLostTargets amúgy is észreveszi).
+static uint8_t releaseRetries = 0;
+static const uint8_t releaseMaxRetries = 20;
+
 // A felengedés kiküldése pontosan azokra a kapcsolatokra, amikre a lenyomás
 // ment. keepModifier != 0 esetén csak maga a billentyű engedődik fel, a
 // módosító nyomva marad (ez kell az Alt+Tab ablakváltáshoz).
-static void hidSendRelease(uint8_t keepModifier) {
+// false = legalább egy célpont nem kapta meg.
+static bool hidSendRelease(uint8_t keepModifier) {
+  bool allOk = true;
   for (uint8_t i = 0; i < pressedTargetCount; i++) {
     uint16_t h = pressedTargets[i];
+    // A bontott kapcsolatnak nincs mit felengedni: az a billentyű a hostnál is
+    // felszabadul, amikor az eszköz eltűnik.
     if (!Bluefruit.connected(h)) continue;
     if (keepModifier) {
       uint8_t none[6] = { HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE,
                           HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
-      blehid.keyboardReport(h, keepModifier, none);
+      if (!blehid.keyboardReport(h, keepModifier, none)) allOk = false;
       continue;
     }
-    if (hasKeyPressed) blehid.keyRelease(h);
-    if (hasConsumerKeyPressed) blehid.consumerKeyRelease(h);
+    if (hasKeyPressed && !blehid.keyRelease(h)) allOk = false;
+    if (hasConsumerKeyPressed && !blehid.consumerKeyRelease(h)) allOk = false;
   }
+  return allOk;
 }
 
 // Az ismétlések közti felengedés: a billentyű felmegy, de a célpontok
@@ -847,13 +861,16 @@ static void hidMarkHeld(bool consumer) {
   hasConsumerKeyPressed = consumer;
 }
 
-// Felengedés és felejtés: a nyilvántartás is ürül.
+// Felengedés és felejtés: a nyilvántartás csak akkor ürül, ha a felengedés
+// tényleg kiment. Különben megmarad, és a főciklus a következő körben
+// újrapróbálja — így egy pillanatnyi torlódás nem hagy beragadt billentyűt.
 static void hidReleaseAll() {
-  hidSendRelease(0);
+  if (!hidSendRelease(0) && ++releaseRetries < releaseMaxRetries) return;
   pressedTargetCount = 0;
   hasKeyPressed = false;
   hasConsumerKeyPressed = false;
   keyPressMillis = 0;
+  releaseRetries = 0;
 }
 
 // Lenyomás küldése. false = nem ment ki semmi (nincs csatlakozott célpont).
@@ -870,23 +887,33 @@ static bool hidPress(bool consumer, uint8_t modifier, uint16_t code, uint8_t mas
   // felengedés, hanem folytatás.
   if (!hidSameAsHeld(consumer, modifier, code, targets, n) && hidHolding()) {
     hidReleaseAll();
+    // Ha a felengedés nem ment ki, most nem küldünk újat: előbb a régit kell
+    // rendbe tenni, különben pont az a beragadt billentyű keletkezne.
+    if (hidHolding()) return false;
   }
 
+  // Csak azt jegyezzük fel célpontként, akihez a lenyomás tényleg kiment: egy
+  // el sem küldött billentyűre később fölösleges felengedést küldenénk.
+  uint8_t sent = 0;
   for (uint8_t i = 0; i < n; i++) {
+    bool ok;
     if (consumer) {
-      blehid.consumerKeyPress(targets[i], code);
+      ok = blehid.consumerKeyPress(targets[i], code);
     } else {
       uint8_t keycodes[6] = { (uint8_t)code, HID_KEY_NONE, HID_KEY_NONE,
                               HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
-      blehid.keyboardReport(targets[i], modifier, keycodes);
+      ok = blehid.keyboardReport(targets[i], modifier, keycodes);
     }
-    pressedTargets[i] = targets[i];
+    if (ok) pressedTargets[sent++] = targets[i];
   }
-  pressedTargetCount = n;
+  if (sent == 0) return false;
+
+  pressedTargetCount = sent;
   hasKeyPressed = !consumer;
   hasConsumerKeyPressed = consumer;
   heldCode = code;
   heldModifier = consumer ? 0 : modifier;
+  releaseRetries = 0;
   return true;
 }
 

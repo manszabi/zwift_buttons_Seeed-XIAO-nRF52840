@@ -58,32 +58,56 @@ extern uint8_t g_lastModifier;
 extern uint8_t g_lastPressedCode;  // csak a tenyleges leutesek
 #include <vector>
 extern std::vector<uint16_t> g_disconnected;
+// A valodi API mind a negy fuggvenye bool-t ad vissza, es a sikertelen
+// ertesites EL IS VESZIK (BLECharacteristic::notify nem sorol be es nem
+// probalkozik ujra). Ezt a viselkedest modellezzuk: g_notifyFail > 0 eseten a
+// kovetkezo ennyi kuldes elbukik.
+extern int g_notifyFail;
+inline bool notifyOk() {
+  if (g_notifyFail > 0) { g_notifyFail--; return false; }
+  return true;
+}
+
 struct BLEHidAdafruit {
   void begin() {}
   // A valodi API szerinti overload-keszlet: van conn_hdl nelkuli ("aktualis
   // kapcsolat") es conn_hdl-es ("tobb kapcsolat") valtozat is.
-  void keyboardReport(uint8_t mod, uint8_t* keys) {
+  bool keyboardReport(uint8_t mod, uint8_t* keys) {
+    if (!notifyOk()) return false;
     g_lastKey = {mod, keys[0], false, 0}; g_keyCount++; g_lastConnHdl = -1;
+    return true;
   }
-  void keyboardReport(uint16_t conn_hdl, uint8_t mod, uint8_t* keys) {
+  bool keyboardReport(uint16_t conn_hdl, uint8_t mod, uint8_t* keys) {
+    if (!notifyOk()) return false;
     g_lastKey = {mod, keys[0], false, 0}; g_lastModifier = mod;
     g_lastConnHdl = (int)conn_hdl;
     // Az ures billentyu (mod nelkul vagy modositoval) nem uj leutes, hanem
     // felengedes: kulon szamoljuk, ahogy a valodi host is ertelmezi.
     if (keys[0] == HID_KEY_NONE) { g_keyReleaseCount++; g_releasedTo[conn_hdl]++; }
     else { g_keyCount++; g_sentTo[conn_hdl]++; g_lastPressedCode = keys[0]; }
+    return true;
   }
-  void keyRelease() { g_keyReleaseCount++; g_lastConnHdl = -1; g_lastModifier = 0; }
-  void keyRelease(uint16_t conn_hdl) { g_keyReleaseCount++; g_releasedTo[conn_hdl]++; g_lastConnHdl = (int)conn_hdl; g_lastModifier = 0; }
-  void consumerKeyPress(uint16_t usage) {
+  bool keyRelease() { if (!notifyOk()) return false;
+    g_keyReleaseCount++; g_lastConnHdl = -1; g_lastModifier = 0; return true; }
+  bool keyRelease(uint16_t conn_hdl) { if (!notifyOk()) return false;
+    g_keyReleaseCount++; g_releasedTo[conn_hdl]++; g_lastConnHdl = (int)conn_hdl;
+    g_lastModifier = 0; return true; }
+  bool consumerKeyPress(uint16_t usage) {
+    if (!notifyOk()) return false;
     g_lastKey = {0, 0, true, usage}; g_consumerCount++; g_lastConnHdl = -1;
+    return true;
   }
-  void consumerKeyPress(uint16_t conn_hdl, uint16_t usage) {
+  bool consumerKeyPress(uint16_t conn_hdl, uint16_t usage) {
+    if (!notifyOk()) return false;
     g_lastKey = {0, 0, true, usage}; g_consumerCount++; g_lastConnHdl = (int)conn_hdl;
     g_sentTo[conn_hdl]++;
+    return true;
   }
-  void consumerKeyRelease() { g_consumerReleaseCount++; g_lastConnHdl = -1; }
-  void consumerKeyRelease(uint16_t conn_hdl) { g_consumerReleaseCount++; g_releasedTo[conn_hdl]++; g_lastConnHdl = (int)conn_hdl; }
+  bool consumerKeyRelease() { if (!notifyOk()) return false;
+    g_consumerReleaseCount++; g_lastConnHdl = -1; return true; }
+  bool consumerKeyRelease(uint16_t conn_hdl) { if (!notifyOk()) return false;
+    g_consumerReleaseCount++; g_releasedTo[conn_hdl]++; g_lastConnHdl = (int)conn_hdl;
+    return true; }
 };
 
 #define BLE_CONN_HANDLE_INVALID 0xFFFF

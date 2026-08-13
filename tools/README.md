@@ -321,6 +321,22 @@ A hirdetés újraindítását a firmware maga végzi: a Bluefruit könyvtár csa
 indítja újra magától, ha **minden** kapcsolat megszűnt, két eszköznél tehát
 enélkül a kieső eszköz nem tudna visszajönni, amíg a másik kapcsolat él.
 
+### Ha egy parancs küldése nem sikerül
+
+A BLE jelentések nem sorbaállított küldések: ha a rádiónak épp nincs szabad
+küldési puffere, a könyvtár **eldobja** a jelentést (nincs újrapróbálkozás).
+Ezért a firmware maga ellenőrzi a küldést:
+
+| Mi veszik el | Mi történik |
+|--------------|-------------|
+| A **lenyomás** | Az eszköz nem jegyzi fel célpontnak – így később nem küld felengedést egy le sem nyomott billentyűre. A parancs egyszerűen elmarad. |
+| A **felengedés** | **Újrapróbálja** minden főciklus-körben, amíg sikerül. Ez a fontos irány: egy elveszett felengedés a számítógépnél beragadt billentyű lenne. |
+| Tartós küldési hiba | Kb. 20 próbálkozás után feladja és tiszta állapotba áll, hogy egy néma kapcsolat ne bénítsa meg az eszközt (a bontást a kapcsolatfigyelés amúgy is észreveszi). |
+
+Ha a kapcsolat még a parancs kiküldése **előtt** szakad meg, semmi nem megy ki
+és semmi nem marad nyilvántartva; a nézetváltás számlálója sem lép, tehát a
+Zwiftben beállított nézettől sem csúszik el.
+
 **Amíg egyik eszköz sincs hozzárendelve, minden gombnyomás mindkét
 kapcsolatra kimegy** — így az eszköz párosítás után azonnal használható.
 Amint viszont legalább egy hozzárendelés létezik, a hozzá nem rendelt eszközök
