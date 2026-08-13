@@ -287,7 +287,7 @@ void setup() {
       stuckButtons |= (uint8_t)(1 << i);
       Serial.print("Gomb ");
       Serial.print(i + 1);
-      Serial.println(" mar induláskor nyomva - figyelmen kivul hagyom, amig fel nem engedik");
+      Serial.println(" mar indulaskor nyomva - figyelmen kivul hagyom, amig fel nem engedik");
     }
   }
 
@@ -298,7 +298,7 @@ void setup() {
   Bluefruit.configPrphConn(92, BLE_GAP_EVENT_LENGTH_MIN, 16, 16);
   // Két kapcsolat több SoftDevice-RAM-ot igényel; ha nem fér el, ezt tudni kell.
   if (!Bluefruit.begin(ZW_MAX_CONNECTIONS, 0)) {
-    Serial.println("HIBA: a BLE stack nem indult el (kevés a RAM?)");
+    Serial.println("HIBA: a BLE stack nem indult el (keves a RAM?)");
   }
   Bluefruit.setTxPower(4);
   Bluefruit.autoConnLed(false);
@@ -345,7 +345,7 @@ void loop() {
   }
 
   if (elozoUzemmod != jelenlegiUzemmod) {
-    Serial.println("A jelenlegiUzemmod értéke megváltozott.");
+    Serial.println("A jelenlegiUzemmod erteke megvaltozott.");
     if (jelenlegiUzemmod == normalUzemmod) saveUzemmod(CONTENTNormal);
     else if (jelenlegiUzemmod == versenyEdzesUzemmod) saveUzemmod(CONTENTVerseny);
     else if (jelenlegiUzemmod == mediaVezerloUzemmod) saveUzemmod(CONTENTMedia);
@@ -1396,7 +1396,7 @@ static void onLongDuring(uint8_t btn) {
     if (debugSerial) {
       Serial.print("Button ");
       Serial.print(btn + 1);
-      Serial.println(" tul rege nyomva - beragadtnak tekintem, figyelmen kivul hagyom");
+      Serial.println(" tul regota nyomva - beragadtnak tekintem, figyelmen kivul hagyom");
     }
     return;
   }

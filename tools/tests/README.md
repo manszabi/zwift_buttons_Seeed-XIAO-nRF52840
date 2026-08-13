@@ -30,7 +30,7 @@ PYTHON=/usr/bin/python3.12 tools/tests/run_all.sh
 
 | Teszt | Mit vizsgál |
 |-------|-------------|
-| `firmware_test.cpp` | A teljes `.ino` a `stubs/` alatti Arduino/BLE/LittleFS utánzatok ellen: gombkezelés, ismétlés, időzített küldés, cél-eszközök, mentés/betöltés, formátum-migráció, soros protokoll. ~90 tesztcsoport. |
+| `firmware_test.cpp` | A teljes `.ino` a `stubs/` alatti Arduino/BLE/LittleFS utánzatok ellen: gombkezelés, ismétlés, időzített küldés, cél-eszközök, kapcsolat-vesztés, beragadt gomb, watchdog, akkumulátor-jelzés, mentés/betöltés, formátum-migráció, soros protokoll. Közel 100 tesztcsoport. |
 | `single_conn.cpp` | Ugyanaz a firmware `ZW_MAX_CONNECTIONS=1`-gyel fordítva – az egykapcsolatos mód is működőképes marad. |
 | `gui_test.py` | A valódi Tkinter felület felépítése és végigkattintgatása: szerkesztő ablak, billentyű-felvétel, ellenőrzések, JSON mentés/betöltés, cella-feliratok. ~190 ellenőrzés. |
 | `integration_test.py` | A valódi Python `DeviceLink` a valódi firmware-kóddal beszélget: a `bridge.cpp` a lefordított firmware-t soros hídként futtatja, a program pedig ezen keresztül olvassa/írja a kiosztást. |
@@ -42,10 +42,19 @@ PYTHON=/usr/bin/python3.12 tools/tests/run_all.sh
 A `stubs/` könyvtár minimális, de a lényeges viselkedésben **hűséges**
 utánzata az Arduino, a Bluefruit BLE és a LittleFS API-nak:
 
-- a HID jelentések **állapotként** viselkednek (a felengedés külön esemény),
+- a HID jelentések **állapotként** viselkednek (a felengedés külön esemény), és
+  a küldés **el is bukhat** (`g_notifyFail`), ahogy a valódi rádiónál, ha nincs
+  szabad puffer – a könyvtár ilyenkor eldobja a jelentést,
 - a `FILE_O_WRITE` nem csonkol és a fájl végére pozicionál – ahogy a valódi
   LittleFS,
-- a BLE kapcsolatok külön címmel és „bonded" állapottal rendelkeznek,
+- a BLE kapcsolatok külön címmel és „bonded" állapottal rendelkeznek, a hirdetés
+  pedig a valódi szabály szerint indul újra magától (csak ha **minden**
+  kapcsolat megszűnt),
+- a gombok lábai olvashatók (`digitalRead`), tehát a bekapcsoláskor már nyomott
+  gomb is előállítható,
+- a chip perifériáiból megvan a **watchdog** (`NRF_WDT`), az ADC
+  (`analogRead`) és a **System OFF** hívás, így az újraindulás-védelem, az
+  akkumulátor-mérés és az elalvás is ellenőrizhető,
 - `millis()` és `delay()` a tesztből léptethető, így az időzítések
   ellenőrizhetők valós várakozás nélkül.
 

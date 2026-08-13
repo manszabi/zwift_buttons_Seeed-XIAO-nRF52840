@@ -508,7 +508,8 @@ kapcsolatra kimegy** – függetlenül attól, hogy az üzemmód vagy az adott c
 melyik célpontot kérné. Ez azért fontos, mert a fájlrendszer sérülése utáni
 automatikus formázás a párosításokat és a hozzárendeléseket is törli: ilyenkor
 az eszköz nem néma marad, hanem mindent mindkét géppel közöl, amíg újra hozzá
-nem rendeled őket. — így az eszköz párosítás után azonnal használható.
+nem rendeled őket. Ugyanez érvényes a legelső használatnál is, tehát az eszköz
+párosítás után azonnal használható, hozzárendelés nélkül is.
 Amint viszont legalább egy hozzárendelés létezik, a hozzá nem rendelt eszközök
 **egyetlen parancsot sem kapnak meg**; ezért érdemes mindkettőt hozzárendelni.
 A konfiguráló program figyelmeztet, ha van hozzá nem rendelt csatlakozott eszköz.

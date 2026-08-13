@@ -19,7 +19,8 @@ Az eszköz 5 fizikai gombbal rendelkezik, és 3 különböző üzemmódot támog
 - **Kiosztás-mentés** – A gomb-kiosztás is a belső flash-memóriába kerül (CRC-vel védve), újraindítás után is megmarad
 - **LED visszajelzés** – 3 szín (piros, kék, zöld) jelzi az aktuális üzemmódot; a LED **2 másodpercre villan fel** bekapcsoláskor és üzemmódváltáskor, utána elalszik (folyamatosan égve ez fogyasztaná a legtöbbet)
 - **Akkumulátor-szint** – az eszköz BLE-n jelenti a töltöttséget, így a telefon és a Windows is mutatja
-- **Hardveres watchdog** – ha a firmware valaha megakadna, a chip magától újraindul; a mentett üzemmód és kiosztás miatt ez észrevétlen
+- **Hardveres watchdog** – ha a firmware valaha megakadna, a chip **10 másodperc után** magától újraindul; a mentett üzemmód és kiosztás miatt ez észrevétlen
+- **Hibatűrés** – a megszakadó BLE kapcsolat, az elveszett HID jelentés és a fizikailag beragadt gomb is kezelve van, hogy ne maradjon beragadt billentyű a számítógépnél ([részletek](tools/README.md#ha-megszakad-egy-kapcsolat))
 - **Automatikus kikapcsolás** – 900 másodperc (15 perc) inaktivitás után alvó módba lép az energiatakarékosság érdekében
 - **Gombnyomásra ébredés** – Alvó módból a 2-es (WAKEUP_PIN) gomb megnyomásával kelthető fel
 - **Alacsony fogyasztás** – DC-DC konverter engedélyezve, QSPI flash alvó módba helyezve kikapcsoláskor
@@ -208,7 +209,7 @@ A következő könyvtárak szükségesek a fordításhoz:
 | `Adafruit_LittleFS` / `InternalFileSystem` | Belső fájlrendszer (nRF52 boarddal települ) |
 | `bluefruit` | Adafruit Bluefruit BLE könyvtár (nRF52 boarddal települ) |
 | `OneButton` | Gombkezelés (click, double-click, long press) – **2.0 vagy újabb** (paraméteres callbackek) |
-| `TickTwo` | Időzített feladatok (watchdog timer) |
+| `TickTwo` | Időzített feladatok (a tétlenségi számláló az alvó módhoz) |
 
 ### Board telepítése
 
