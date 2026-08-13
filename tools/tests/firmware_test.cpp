@@ -1834,6 +1834,88 @@ int main() {
   fct_WatchdogReset();
   std::cout << "-- R70 induláskor nyomott gomb es beragadt ebreszto gomb kezelve\n";
 
+  // R71) Megszakadt konfig-mentes (aramszunet / ujrainditas mentes kozben)
+  // A mentes atmeneti fajlba ir, es csak hibatlan kiiras utan nevezi at. A
+  // littlefs atnevezese aramszunet-biztos (DESIGN.md: globalis allapot +
+  // helyreallitas mount-kor), tehat vagy a REGI, vagy az UJ tartalom marad.
+  {
+    loadDefaultKeymap();
+    expect(send("SET 0 0 0 1 0 4 0 60"), "OK", "kiindulasi ertek");
+    assert(saveKeymap());
+    assert(keymap.map[0][0][0].code == 0x04);
+
+    // a) Megszakadas az atmeneti fajl irasa kozben
+    expect(send("SET 0 0 0 1 0 5 0 60"), "OK", "uj, el nem mentett ertek");
+    g_fsWriteFail = true;
+    bool saved = saveKeymap();
+    g_fsWriteFail = false;
+    assert(!saved);                       // a mentes hibat jelez
+    memset(&keymap, 0, sizeof(keymap));   // "ujrainditas"
+    if (!loadKeymap() || keymap.map[0][0][0].code != 0x04) {
+      std::cout << "HIBA R71a: megszakadt iras utan elveszett a korabbi mentes\n";
+      return 1;
+    }
+
+    // b) Megszakadas az atnevezes elott
+    expect(send("SET 0 0 0 1 0 6 0 60"), "OK", "ujabb ertek");
+    g_fsRenameFail = true;
+    saved = saveKeymap();
+    g_fsRenameFail = false;
+    assert(!saved);
+    memset(&keymap, 0, sizeof(keymap));
+    if (!loadKeymap() || keymap.map[0][0][0].code != 0x04) {
+      std::cout << "HIBA R71b: megszakadt atnevezes utan elveszett a mentes\n";
+      return 1;
+    }
+
+    // c) Ottmaradt (szemet) atmeneti fajl nem zavarja a kovetkezo mentest
+    g_fs["/keymap.tmp"] = std::string(200, 'X');
+    expect(send("SET 0 0 0 1 0 7 0 60"), "OK", "harmadik ertek");
+    if (!saveKeymap()) {
+      std::cout << "HIBA R71c: ottmaradt atmeneti fajl utan nem sikerul a mentes\n";
+      return 1;
+    }
+    memset(&keymap, 0, sizeof(keymap));
+    if (!loadKeymap() || keymap.map[0][0][0].code != 0x07) {
+      std::cout << "HIBA R71c: a mentes nem az uj tartalmat orizte meg\n";
+      return 1;
+    }
+
+    // d) Csonka fajl (fel-irodott) - nem szabad betolteni
+    g_fs["/keymap.bin"].resize(200);
+    memset(&keymap, 0, sizeof(keymap));
+    if (loadKeymap()) {
+      std::cout << "HIBA R71d: csonka fajlt is betolt\n";
+      return 1;
+    }
+
+    // e) Ep meretu, de serult tartalom: a CRC fogja meg
+    loadDefaultKeymap();
+    expect(send("SET 0 0 0 1 0 8 0 60"), "OK", "negyedik ertek");
+    assert(saveKeymap());
+    g_fs["/keymap.bin"][100] = (char)(g_fs["/keymap.bin"][100] ^ 0x01);
+    memset(&keymap, 0, sizeof(keymap));
+    if (loadKeymap()) {
+      std::cout << "HIBA R71e: egy bitbillenest nem vesz eszre a CRC\n";
+      return 1;
+    }
+
+    // f) Ugyanez az uzemmod-fajlnal: a megszakadt mentes nem torli a regit
+    g_fs.clear();
+    saveUzemmod(CONTENTMedia);
+    assert(readStoredMode() == mediaVezerloUzemmod);
+    g_fsWriteFail = true;
+    saveUzemmod(CONTENTNormal);
+    g_fsWriteFail = false;
+    if (readStoredMode() != mediaVezerloUzemmod) {
+      std::cout << "HIBA R71f: megszakadt uzemmod-mentes elvesztette a regi erteket\n";
+      return 1;
+    }
+    g_fs.clear();
+    loadDefaultKeymap();
+  }
+  std::cout << "-- R71 megszakadt mentes: vagy a regi, vagy az uj marad - soha nem szemet\n";
+
   std::cout << "\nMINDEN TESZT SIKERES\n";
   return 0;
 }

@@ -156,6 +156,40 @@ Példa: `SET 0 0 2 1 12 21 0 60` → Normál üzemmód, Gomb 1, hosszú nyomás 
 A kiosztás CRC32-vel védve, a `/keymap.bin` fájlban tárolódik. Sérült vagy
 hiányzó fájl esetén a firmware automatikusan a gyári kiosztást használja.
 
+### Ha mentés közben megszakad az áram
+
+A **Mentés az eszköz memóriájába** nem írja felül közvetlenül a meglévő
+konfigurációt. A firmware előbb egy **ideiglenes fájlba** ír, és csak hibátlan
+kiírás után cseréli le a régit egy **átnevezéssel** – a littlefs átnevezése
+áramszünet-biztos (a fájlrendszer a bekapcsoláskor felismeri és befejezi vagy
+visszavonja a félbemaradt műveletet).
+
+Ezért bármikor is szakad meg az áram, a flashben **vagy a régi, vagy az új
+konfiguráció** van – félig felülírt tartalom nem keletkezhet:
+
+| Mikor szakad meg | Mi marad a flashben |
+|------------------|---------------------|
+| Az ideiglenes fájl írása közben | A **régi** konfiguráció, sértetlenül |
+| Az átnevezés előtt | A **régi** konfiguráció; az ideiglenes fájl ottmarad, de a következő mentés törli |
+| Az átnevezés közben | A fájlrendszer rendezi: a régi vagy az új, sosem keverék |
+| Az átnevezés után | Az **új** konfiguráció |
+
+Két további védelem:
+
+- A konfiguráció **CRC32-vel** védett, és a mérete is ellenőrzött. Ha a fájl
+  mégis sérülne (csonka tartalom, bitbillenés), a firmware nem tölti be, hanem
+  a **gyári kiosztással** indul – a soros porton ki is írja. A sérült fájlt nem
+  írja felül, tehát nem tesz kárt.
+- Ha maga a fájlrendszer sérül meg annyira, hogy nem csatolható, az
+  `InternalFS.begin()` **automatikusan formáz** – az eszköz ilyenkor gyári
+  kiosztással és Normál üzemmódban indul, de működőképes marad.
+
+Ugyanez a mechanizmus védi az **üzemmód** mentését is.
+
+> A gomb-kiosztást érdemes a konfiguráló programból **JSON fájlba is
+> elmenteni**. Az eszközön tárolt példány elvesztése (sérülés, formázás,
+> gyári visszaállítás) így nem jelent újrakattintgatást.
+
 ### Formátum-verziók
 
 | Mi | Jelenlegi | Hol jelenik meg |
