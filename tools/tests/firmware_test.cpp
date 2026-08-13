@@ -205,7 +205,9 @@ int main() {
   assert(g_keyCount == 1 && g_keyReleaseCount == 0);   // NEM enged fel
   g_millis += 40; longPress4();
   assert(g_keyCount == 2 && g_keyReleaseCount == 0);
-  assert(duringLongpress && !hasKeyPressed);
+  // Nyomva tartott modban a billentyu tenyleg lenyomva van: a tulajdonos ezt
+  // jelzi is. A fociklus automatikus felengedeset a duringLongpress tiltja.
+  assert(duringLongpress && hasKeyPressed);
   longPressStop4();
   assert(!duringLongpress && hasKeyPressed);
   loop(); g_millis += 200; loop();     // a fociklus engedi fel
@@ -1366,14 +1368,8 @@ int main() {
   assert(g_keyCount == 1);            // egyetlen lenyomas
   {
     int rel = g_keyReleaseCount;
-    // A kuldes vege elott nem engedjuk fel, es kozben MAS PARANCS SEM MEHET KI.
-    // (Egy loop() kor a vegen levo delay(20) miatt ~30 ms-ot lep.)
-    for (int i = 0; i < 15; i++) {
-      g_millis += 10; loop();
-      click2();                       // masik gomb parancsa nem szolhat bele
-      doubleclick3();
-      longPressStart4(); longPress4(); longPressStop4();
-    }
+    // A kuldes alatt a fociklus nem enged fel, es nem is kuld semmi mast.
+    for (int i = 0; i < 15; i++) { g_millis += 10; loop(); }
     if (g_keyCount != 1) {
       std::cout << "HIBA R59: idozitett kuldes kozben masik parancs is kiment ("
                 << g_keyCount << " leutes)\n";
@@ -1383,10 +1379,11 @@ int main() {
       std::cout << "HIBA R59: a billentyu korabban felengedodott\n";
       return 1;
     }
-    assert(burstActive);   // a kuldes meg tart
+    assert(burstActive);
   }
-  // az ido letelte utan viszont felengedodik es ujra lehet parancsot kuldeni
-  for (int i = 0; i < 20; i++) { g_millis += 30; loop(); }
+  // az ido letelte utan felengedodik es ujra lehet parancsot kuldeni
+  // (a kor most 5 ms-ot var, mert idozitett kuldes van folyamatban)
+  for (int i = 0; i < 40; i++) { g_millis += 30; loop(); }
   if (g_keyReleaseCount == 0) {
     std::cout << "HIBA R59: a beallitott ido utan sem lett felengedve\n";
     return 1;
@@ -1395,7 +1392,35 @@ int main() {
   resetKeyState();
   click2(); loop();
   assert(g_keyCount == 1);            // a kuldes vege utan mar mehet mas
-  std::cout << "-- R59 rovid nyomas idozitett kuldese tart, kozben mas nem megy ki\n";
+  std::cout << "-- R59 rovid nyomas idozitett kuldese vegigtart\n";
+
+  // R59b) Futo kuldest barmelyik gombnyomas megszakit, de a sajat parancsa
+  //       mar nem megy ki - igy sosem torlodik ket parancs egymasra.
+  loadDefaultKeymap();
+  jelenlegiUzemmod = normalUzemmod;
+  expect(send("SET 0 0 0 1 0 80 0 60 0 5000"), "OK", "G1 rovid = 5 masodperc");
+  resetKeyState();
+  click1();
+  assert(burstActive && g_keyCount == 1);
+  {
+    int before = g_keyCount;
+    click2();                          // masik gomb: megszakit
+    if (burstActive) {
+      std::cout << "HIBA R59b: a gombnyomas nem szakitotta meg a kuldest\n";
+      return 1;
+    }
+    if (g_keyCount != before) {
+      std::cout << "HIBA R59b: a megszakito gombnyomas parancsa is kiment\n";
+      return 1;
+    }
+  }
+  // a megszakitas utan felengedodik, es a kovetkezo gombnyomas mar mukodik
+  for (int i = 0; i < 10; i++) { g_millis += 50; loop(); }
+  assert(g_keyReleaseCount >= 1 && !hasKeyPressed);
+  resetKeyState();
+  click2(); loop();
+  assert(g_keyCount == 1);
+  std::cout << "-- R59b a futo kuldes megszakithato, a megszakito nyomas nem kuld\n";
 
   // R60) Idozitett kuldes kulon leutesekkel (dupla kattintas)
   loadDefaultKeymap();

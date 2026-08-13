@@ -126,8 +126,9 @@ Az üzemmód automatikusan mentődik a belső fájlrendszerbe, így újraindít�
 
 > ⏱️ **Küldési hossz:** rövid nyomásnál és dupla kattintásnál minden cellánál
 > beállítható, hogy a parancs meddig menjen ki. Amíg tart, más gomb parancsa nem
-> megy ki. Hosszú nyomásnál ez nem értelmezett – ott a gomb elengedése zárja le
-> a küldést, a működés változatlan.
+> megy ki – de **bármelyik gombnyomás megszakítja**, így az eszköz sosem marad
+> hosszan süket. Hosszú nyomásnál ez nem értelmezett: ott a gomb elengedése
+> zárja le a küldést, a működés változatlan.
 
 > 🎙️ **Hangasszisztens:** a média billentyűk között választható a
 > *Hangasszisztens (Siri/Google)* és a *Desktop Assistant* kód is, így

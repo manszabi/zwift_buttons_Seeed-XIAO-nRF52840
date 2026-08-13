@@ -29,6 +29,10 @@ void fct_Watchdog();
 // A fireAction() hamarabb hivja, mint ahol definialva van; statikus
 // fuggvenyhez az Arduino nem general automatikus prototipust.
 static void startBurst(const KeyAction& a);
+// Ugyanezert: a fociklus hamarabb hasznalja, mint a definiciojuk helye.
+static void hidReleaseAll();
+static bool hidHolding();
+static void cancelBurst();
 
 BLEDis bledis;
 BLEHidAdafruit blehid;
@@ -209,11 +213,7 @@ void loop() {
     unsigned long currentMillis = millis();
 
     if (!duringLongpress && keyPressMillis > 0 && (currentMillis - keyPressMillis >= keyReleaseDelay)) {
-      releasePressedKeys(hasKeyPressed, hasConsumerKeyPressed);
-      if (hasKeyPressed) hasKeyPressed = false;
-      if (hasConsumerKeyPressed) hasConsumerKeyPressed = false;
-      pressedTargetCount = 0;
-      keyPressMillis = 0;
+      hidReleaseAll();
     }
   }
 
@@ -225,7 +225,12 @@ void loop() {
   }
 
   watchDOG.update();
-  delay(20);
+  // A delay() ezen a magon vTaskDelay: átadja a vezérlést az ütemezőnek (és
+  // üríti az USB CDC puffert), tehát nem foglalja a processzort. Amíg időzített
+  // dolgunk van — leütés-impulzus, ismétlés, időzített küldés —, sűrűbben
+  // ébredünk, hogy a felengedés pontos maradjon; egyébként ritkábban, ami
+  // energiatakarékosabb.
+  delay((repeatTapPending || duringLongpress || burstActive) ? 5 : 20);
 }
 
 
@@ -748,38 +753,139 @@ static uint8_t targetMaskOf(const KeyAction& a) {
   return a.target ? a.target : keymap.modeTarget[(uint8_t)jelenlegiUzemmod];
 }
 
-static bool sendKeyboard(uint8_t modifier, uint8_t keycode, uint8_t mask) {
-  // A duringLongpress is kizáró feltétel: ismétlés közben a főciklus nem
-  // engedi fel a billentyűt, így egy közben indított másik művelet
-  // felengedése is elmaradna (beragadt billentyű a másik eszközön).
-  if (duringLongpress || hasKeyPressed || hasConsumerKeyPressed) return false;
+// ---------------------------------------------------------------------------
+// A HID-kimenet egyetlen tulajdonosa
+//
+// Korábban öt különböző helyről íródott, hogy „mi van most lenyomva és kinél"
+// (pressedTargets, hasKeyPressed, hasConsumerKeyPressed). Aki később írt bele,
+// elvesztette a másik felengedését — a régi célponton (pl. a telefonon)
+// felengedetlenül maradt a billentyű. Mostantól minden küldés ezen a néhány
+// függvényen megy át, és a lenyomás MINDIG felengedi az előzőt a saját
+// célpontjain, mielőtt átvenné a listát.
+//
+// Az alábbi három változót csak ezek a függvények (és a pruneLostTargets)
+// írhatják: pressedTargets, pressedTargetCount, hasKeyPressed,
+// hasConsumerKeyPressed.
+// ---------------------------------------------------------------------------
+
+// Mit tart éppen lenyomva a tulajdonos (a felengedéshez és annak eldöntéséhez,
+// hogy egy újabb küldés ugyanaz-e, vagy átvétel).
+static uint16_t heldCode = 0;
+static uint8_t heldModifier = 0;
+
+static bool hidHolding() {
+  return hasKeyPressed || hasConsumerKeyPressed;
+}
+
+// Ugyanazt a lenyomást ismételjük-e ugyanazokra a kapcsolatokra? Nyomva tartott
+// módban az ismétlés ezt teszi: ilyenkor NEM szabad közben felengedni, mert épp
+// az a lényeg, hogy a billentyű végig lent maradjon.
+static bool hidSameAsHeld(bool consumer, uint8_t modifier, uint16_t code,
+                          const uint16_t* targets, uint8_t n) {
+  if (!hidHolding()) return false;
+  if (consumer != hasConsumerKeyPressed) return false;
+  if (code != heldCode || modifier != heldModifier) return false;
+  if (n != pressedTargetCount) return false;
+  for (uint8_t i = 0; i < n; i++) {
+    if (targets[i] != pressedTargets[i]) return false;
+  }
+  return true;
+}
+
+// A felengedés kiküldése pontosan azokra a kapcsolatokra, amikre a lenyomás
+// ment. keepModifier != 0 esetén csak maga a billentyű engedődik fel, a
+// módosító nyomva marad (ez kell az Alt+Tab ablakváltáshoz).
+static void hidSendRelease(uint8_t keepModifier) {
+  for (uint8_t i = 0; i < pressedTargetCount; i++) {
+    uint16_t h = pressedTargets[i];
+    if (!Bluefruit.connected(h)) continue;
+    if (keepModifier) {
+      uint8_t none[6] = { HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE,
+                          HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
+      blehid.keyboardReport(h, keepModifier, none);
+      continue;
+    }
+    if (hasKeyPressed) blehid.keyRelease(h);
+    if (hasConsumerKeyPressed) blehid.consumerKeyRelease(h);
+  }
+}
+
+// Az ismétlések közti felengedés: a billentyű felmegy, de a célpontok
+// nyilvántartása megmarad, mert a gomb elengedésekor még jön egy záró
+// felengedés (biztonsági háló elveszett értesítésre). Hold-mód esetén csak
+// maga a billentyű megy fel, a módosító nyomva marad.
+static void hidTapRelease(uint8_t keepModifier) {
+  hidSendRelease(keepModifier);
+  hasKeyPressed = false;
+  hasConsumerKeyPressed = false;
+}
+
+// A záró felengedés előjegyzése: a főciklus a keyReleaseDelay letelte után
+// küldi ki. Akkor is kell, ha közben már volt felengedés.
+static void hidMarkHeld(bool consumer) {
+  if (pressedTargetCount == 0) return;
+  hasKeyPressed = !consumer;
+  hasConsumerKeyPressed = consumer;
+}
+
+// Felengedés és felejtés: a nyilvántartás is ürül.
+static void hidReleaseAll() {
+  hidSendRelease(0);
+  pressedTargetCount = 0;
+  hasKeyPressed = false;
+  hasConsumerKeyPressed = false;
+  keyPressMillis = 0;
+}
+
+// Lenyomás küldése. false = nem ment ki semmi (nincs csatlakozott célpont).
+static bool hidPress(bool consumer, uint8_t modifier, uint16_t code, uint8_t mask) {
   uint16_t targets[ZW_MAX_CONNECTIONS];
   uint8_t n = collectTargets(mask, targets);
+  // Ha nincs kinek küldeni, a korábbi lenyomáshoz sem nyúlunk: azt a saját
+  // időzítése fogja rendben felengedni.
   if (n == 0) return false;
 
-  uint8_t keycodes[6] = { keycode, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
+  // Itt a kulcs: ha MÁS van lenyomva, azt előbb felengedjük a SAJÁT
+  // célpontjain — különben a lista felülíródna, és a régi célponton
+  // felengedetlen maradna a billentyű. Ugyanannak az ismétlése viszont nem
+  // felengedés, hanem folytatás.
+  if (!hidSameAsHeld(consumer, modifier, code, targets, n) && hidHolding()) {
+    hidReleaseAll();
+  }
+
   for (uint8_t i = 0; i < n; i++) {
-    blehid.keyboardReport(targets[i], modifier, keycodes);
+    if (consumer) {
+      blehid.consumerKeyPress(targets[i], code);
+    } else {
+      uint8_t keycodes[6] = { (uint8_t)code, HID_KEY_NONE, HID_KEY_NONE,
+                              HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
+      blehid.keyboardReport(targets[i], modifier, keycodes);
+    }
     pressedTargets[i] = targets[i];
   }
   pressedTargetCount = n;
-  hasKeyPressed = true;
+  hasKeyPressed = !consumer;
+  hasConsumerKeyPressed = consumer;
+  heldCode = code;
+  heldModifier = consumer ? 0 : modifier;
+  return true;
+}
+
+static bool sendKeyboard(uint8_t modifier, uint8_t keycode, uint8_t mask) {
+  // Ismétlés vagy időzített küldés közben a főciklus nem engedi fel a
+  // billentyűt, ezért egy közben indított másik művelet felengedése is
+  // elmaradna — ilyenkor inkább nem küldünk semmit.
+  if (duringLongpress || hidHolding()) return false;
+  if (!hidPress(false, modifier, keycode, mask)) return false;
+  // A delay() ezen a magon vTaskDelay: átadja a vezérlést az ütemezőnek (és
+  // üríti az USB CDC puffert), tehát nem foglalja a processzort.
   delay(5);
   return true;
 }
 
 static bool sendConsumer(uint16_t usage, uint8_t mask) {
-  if (duringLongpress || hasKeyPressed || hasConsumerKeyPressed) return false;
-  uint16_t targets[ZW_MAX_CONNECTIONS];
-  uint8_t n = collectTargets(mask, targets);
-  if (n == 0) return false;
-
-  for (uint8_t i = 0; i < n; i++) {
-    blehid.consumerKeyPress(targets[i], usage);
-    pressedTargets[i] = targets[i];
-  }
-  pressedTargetCount = n;
-  hasConsumerKeyPressed = true;
+  if (duringLongpress || hidHolding()) return false;
+  if (!hidPress(true, 0, usage, mask)) return false;
   delay(5);
   return true;
 }
@@ -812,30 +918,11 @@ void pruneLostTargets() {
   }
 }
 
-void releasePressedKeys(bool keyboard, bool consumer) {
-  for (uint8_t i = 0; i < pressedTargetCount; i++) {
-    uint16_t h = pressedTargets[i];
-    if (!Bluefruit.connected(h)) continue;
-    if (keyboard) blehid.keyRelease(h);
-    if (consumer) blehid.consumerKeyRelease(h);
-  }
-}
-
 // Az ismétlés leütés-impulzusának lezárása. Ha van nyomva tartandó módosító,
 // csak magát a billentyűt engedjük fel (Alt+Tab), egyébként teljeset küldünk.
 static void endRepeatTap() {
   repeatTapPending = false;
-  if (repeatTapModifier) {
-    uint8_t none[6] = { HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE,
-                        HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
-    for (uint8_t i = 0; i < pressedTargetCount; i++) {
-      if (Bluefruit.connected(pressedTargets[i])) {
-        blehid.keyboardReport(pressedTargets[i], repeatTapModifier, none);
-      }
-    }
-  } else {
-    releasePressedKeys(!repeatSentConsumer, repeatSentConsumer);
-  }
+  hidTapRelease(repeatTapModifier);
 }
 
 // A főciklusból hívjuk, hogy az impulzus a gomb-tickektől függetlenül záruljon.
@@ -898,35 +985,13 @@ static void sendRepeat(const KeyAction& a) {
   // A host ilyenkor végig lenyomva látná a billentyűt (beragadt billentyű).
   if (repeatTapPending) endRepeatTap();
 
-  // Ha egy rövid/dupla nyomásból még függ egy lenyomás, azt előbb felengedjük.
-  // A pressedTargets listát mindjárt felülírjuk, és a főciklus utána már nem
-  // tudná, kinek tartozik felengedéssel — a régi célponton (pl. a telefonon,
-  // ahová az ismétlés nem is megy) végleg lenyomva ragadna a billentyű.
-  if (hasKeyPressed || hasConsumerKeyPressed) {
-    releasePressedKeys(hasKeyPressed, hasConsumerKeyPressed);
-    hasKeyPressed = false;
-    hasConsumerKeyPressed = false;
-    pressedTargetCount = 0;
-    keyPressMillis = 0;
-  }
-
   // Egyszer számoljuk ki: menet közben változhat az üzemmód, és a két
   // felhasználás akkor sem térhet el egymástól.
   const uint8_t mask = targetMaskOf(a);
-  uint16_t targets[ZW_MAX_CONNECTIONS];
-  uint8_t n = collectTargets(mask, targets);
-  if (n == 0) return;
+  // A hidPress() felengedi az esetleg még függő korábbi lenyomást a saját
+  // célpontjain, mielőtt átvenné a listát.
+  if (!hidPress(a.type == ACT_CONSUMER, a.modifier, a.code, mask)) return;
 
-  for (uint8_t i = 0; i < n; i++) {
-    if (a.type == ACT_KEY) {
-      uint8_t keycodes[6] = { (uint8_t)a.code, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE, HID_KEY_NONE };
-      blehid.keyboardReport(targets[i], a.modifier, keycodes);
-    } else {
-      blehid.consumerKeyPress(targets[i], a.code);
-    }
-    pressedTargets[i] = targets[i];
-  }
-  pressedTargetCount = n;
   repeatSentConsumer = (a.type == ACT_CONSUMER);
   repeatType = a.type;
   repeatCode = a.code;
@@ -947,8 +1012,9 @@ static void sendRepeat(const KeyAction& a) {
                           ? a.modifier : 0;
   }
 
-  hasKeyPressed = false;
-  hasConsumerKeyPressed = false;
+  // A jelzőket NEM töröljük: a tulajdonos tartja nyilván, mi van lenyomva. A
+  // főciklus automatikus felengedését a duringLongpress tiltja addig, amíg az
+  // ismétlés tart.
   duringLongpress = true;
 }
 
@@ -981,14 +1047,7 @@ static void finishRepeat() {
   repeatDue = false;
   duringLongpress = false;
   repeatType = ACT_NONE;
-  // Záró felengedés akkor is, ha az ismétlések között már engedtünk fel: ez a
-  // biztonsági háló arra az esetre, ha egy közbenső felengedés elveszne.
-  if (pressedTargetCount == 0) return;
-  if (repeatSentConsumer) {
-    hasConsumerKeyPressed = true;
-  } else {
-    hasKeyPressed = true;
-  }
+  hidMarkHeld(repeatSentConsumer);
 }
 
 // Ismétlés azonnali lezárása, ha egy másik gomb veszi át. Itt nem bízhatjuk a
@@ -997,14 +1056,10 @@ static void finishRepeat() {
 static void abortRepeat() {
   repeatTapPending = false;
   repeatType = ACT_NONE;
-  releasePressedKeys(!repeatSentConsumer, repeatSentConsumer);
-  pressedTargetCount = 0;
   repeatButton = -1;
   repeatDue = false;
   duringLongpress = false;
-  hasKeyPressed = false;
-  hasConsumerKeyPressed = false;
-  keyPressMillis = 0;
+  hidReleaseAll();
 }
 
 // Időzített küldés indítása (rövid / dupla nyomás). A hosszú nyomás ismétlés-
@@ -1039,6 +1094,15 @@ static void startBurst(const KeyAction& a) {
   burstEndMillis = millis() + hold;
 }
 
+// Futó időzített küldés megszakítása. Enélkül egy hosszúra (akár 5 s-ra)
+// állított küldés alatt az eszköz süketnek tűnne: az üzemmódváltás sem menne.
+// A megszakítást kiváltó gombnyomás maga NEM hajtódik végre — így továbbra sem
+// mehet ki két parancs egymásra torlódva.
+static void cancelBurst() {
+  burstActive = false;
+  finishRepeat();
+}
+
 // A főciklusból hívjuk: fenntartja, majd a beállított idő végén lezárja a
 // rövid/dupla nyomáshoz tartozó küldést.
 void updateBurst() {
@@ -1064,23 +1128,25 @@ void updateBurst() {
 static void onClick(uint8_t btn) {
   if (debugSerial) { Serial.print("Button "); Serial.print(btn + 1); Serial.println(" click."); }
   fct_WatchdogReset();
-  // Amíg egy időzített küldés tart, más parancs nem indulhat.
-  if (burstActive) return;
+  // Futó időzített küldést ez a gombnyomás megszakítja, de a saját parancsa
+  // már nem megy ki (lásd cancelBurst).
+  if (burstActive) { cancelBurst(); return; }
   fireAction(btn, EV_CLICK);
 }
 
 static void onDoubleClick(uint8_t btn) {
   if (debugSerial) { Serial.print("Button "); Serial.print(btn + 1); Serial.println(" doubleclick."); }
   fct_WatchdogReset();
-  // Amíg egy időzített küldés tart, más parancs nem indulhat.
-  if (burstActive) return;
+  // Futó időzített küldést ez a gombnyomás megszakítja, de a saját parancsa
+  // már nem megy ki (lásd cancelBurst).
+  if (burstActive) { cancelBurst(); return; }
   fireAction(btn, EV_DOUBLE);
 }
 
 static void onLongStart(uint8_t btn) {
   if (debugSerial) { Serial.print("Button "); Serial.print(btn + 1); Serial.println(" longPress start"); }
   fct_WatchdogReset();
-  if (burstActive) return;   // időzített küldés közben nem indul új művelet
+  if (burstActive) { cancelBurst(); return; }  // a futó küldést megszakítja
   const KeyAction& a = currentAction(btn, EV_LONG);
   if (isRepeating(a)) {
     // Ha egy másik gomb ismétlése volt folyamatban (két gomb egyszerre

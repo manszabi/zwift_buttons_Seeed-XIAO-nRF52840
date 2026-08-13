@@ -192,13 +192,16 @@ hogy a parancs meddig menjen ki:
 | **+ Külön leütésekként** | minden ismétlés teljes leütés + felengedés |
 | **+ Módosító nyomva** | az `Alt`/`Ctrl`/`Win` a küldés végéig nyomva marad |
 
-**Amíg egy ilyen küldés tart, az eszköz semmilyen más parancsot nem küld ki:**
-a többi gomb rövid, dupla és hosszú nyomása is hatástalan, amíg a beállított idő
-le nem telik. Ezért van 5000 ms-os felső határ. Fordítva is igaz: amíg egy
-hosszú nyomás ismétlése fut, addig nem indul időzített küldés.
+**Amíg egy ilyen küldés tart, az eszköz semmilyen más parancsot nem küld ki.**
+Ez szándékos: így soha nem torlódik egymásra két parancs. Hogy közben mégse
+tűnjön süketnek az eszköz, **bármelyik gombnyomás megszakítja a futó küldést** –
+a megszakító gombnyomás saját parancsa viszont nem megy ki. Egy hosszúra
+állított küldésből tehát egyetlen gombnyomással ki lehet lépni, a következő
+nyomás pedig már a szokásos módon működik.
 
-Ha a beállított célpont épp nincs csatlakozva, a küldés el sem indul – ilyenkor
-a többi gomb változatlanul használható marad.
+Fordítva is igaz: amíg egy hosszú nyomás ismétlése fut, addig nem indul
+időzített küldés. Ha pedig a beállított célpont épp nincs csatlakozva, a küldés
+el sem indul – ilyenkor a többi gomb változatlanul használható marad.
 
 A hosszú nyomásnál ez a mező **nem** jelenik meg, és a firmware vissza is
 utasítja: ott a küldést a gomb elengedése zárja le (lásd a következő fejezetet).
