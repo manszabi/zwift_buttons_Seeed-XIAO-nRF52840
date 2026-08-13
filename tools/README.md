@@ -339,6 +339,31 @@ Ez szándékos: egy elmaradt gombnyomás bosszantó, egy beragadt billentyű vis
 sokkal rosszabb. A firmware ezért inkább kihagy egy parancsot, mint hogy két
 billentyű-állapotot keverjen össze.
 
+### Ha egy gomb fizikailag beragad
+
+Egy mechanikusan beragadt (vagy zárlatos) gomb esetén az eszköz soha nem kapja
+meg a felengedést. Ez kezelés nélkül háromszorosan is rossz lenne: a beállított
+parancsot végtelenül szórná a számítógépnek, közben a **többi gomb is néma
+maradna** (egyszerre csak egy parancs lehet a levegőben), és az eszköz soha nem
+aludna el, tehát lemerülne az akkumulátor.
+
+Ezért a firmware **30 másodperc** folyamatos nyomva tartás után beragadtnak
+tekinti a gombot, és figyelmen kívül hagyja, amíg fel nem engedik:
+
+- az ismétlés leáll, a billentyű felengedődik,
+- a többi gomb újra használható,
+- az inaktivitás-számláló újra nő, tehát az **alvó mód is működik**,
+- `DBG 1` mellett a soros porton megjelenik, melyik gombot tekintette
+  beragadtnak.
+
+Amint a gomb ténylegesen felengedett, minden korlátozás megszűnik, és a gomb
+újra a szokásos módon működik. A 30 másodperc bőven a valós használat fölött
+van: a leghosszabb értelmes tartás (hangerő, ablakváltás) néhány másodperc.
+
+> Ha épp a **Gomb 2** (az ébresztő láb) ragad be, az eszköz elalvás után azonnal
+> újraindul, mert az ébresztési feltétel folyamatosan teljesül. Ilyenkor a gomb
+> mechanikai javítása az egyetlen megoldás.
+
 ### Ha egy parancs küldése nem sikerül
 
 A BLE jelentések nem sorbaállított küldések: ha a rádiónak épp nincs szabad

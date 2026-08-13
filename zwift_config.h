@@ -55,6 +55,12 @@
 // A rövid és a dupla nyomás küldési hosszának felső határa (ms). Amíg egy ilyen
 // küldés tart, más parancs nem mehet ki, ezért nem érdemes tetszőlegesen
 // hosszúra engedni.
+// Ha egy gombot ennél tovább tartanak nyomva, az szinte biztosan fizikai
+// beragadás: a leghosszabb értelmes tartás (hangerő, Alt+Tab ablakváltás)
+// nagyságrendekkel rövidebb. A firmware ilyenkor figyelmen kívül hagyja a
+// gombot, amíg fel nem engedik.
+#define ZW_STUCK_BUTTON_MS 30000
+
 #define ZW_MAX_HOLD_MS 5000
 // Ennél rövidebb küldésnek nincs értelme (a rendes rövid impulzus 100 ms), és a
 // konfiguráló program sem enged kisebbet – ha a firmware mégis elfogadná, a

@@ -75,6 +75,11 @@ static bool burstActive = false;
 static unsigned long burstEndMillis = 0;
 static KeyAction burstAction;
 
+// Beragadt gomb felismerése. A hosszú nyomás kezdete gombonként, és egy
+// bitmaszk azokról, amelyeket már beragadtnak tekintünk.
+static unsigned long longPressStartMillis[ZW_NUM_BUTTONS] = { 0 };
+static uint8_t stuckButtons = 0;
+
 // Mit küld éppen az ismétlés. Nyomva tartás közben megváltozhat az üzemmód, és
 // vele a művelet is; ha a kiküldött billentyű vagy a célpont más lenne, az
 // ismétlést le kell zárni — különben a RÉGI billentyű felengedetlenül maradna
@@ -1192,6 +1197,8 @@ static void onDoubleClick(uint8_t btn) {
 static void onLongStart(uint8_t btn) {
   if (debugSerial) { Serial.print("Button "); Serial.print(btn + 1); Serial.println(" longPress start"); }
   fct_WatchdogReset();
+  longPressStartMillis[btn] = millis();
+  stuckButtons &= (uint8_t)~(1 << btn);
   if (burstActive) { cancelBurst(); return; }  // a futó küldést megszakítja
   const KeyAction& a = currentAction(btn, EV_LONG);
   if (isRepeating(a)) {
@@ -1209,6 +1216,21 @@ static void onLongStart(uint8_t btn) {
 }
 
 static void onLongDuring(uint8_t btn) {
+  // Beragadt gombot nem szolgálunk ki: nem szórjuk a billentyűt a hostnak, nem
+  // tiltjuk le tőle a többi gombot, és — mivel a watchdogot sem nullázzuk — az
+  // eszköz el tud aludni, nem meríti le az akkumulátort.
+  if (stuckButtons & (1 << btn)) return;
+  if ((millis() - longPressStartMillis[btn]) >= ZW_STUCK_BUTTON_MS) {
+    stuckButtons |= (uint8_t)(1 << btn);
+    if (repeatButton == (int8_t)btn) abortRepeat();
+    if (debugSerial) {
+      Serial.print("Button ");
+      Serial.print(btn + 1);
+      Serial.println(" tul rege nyomva - beragadtnak tekintem, figyelmen kivul hagyom");
+    }
+    return;
+  }
+
   fct_WatchdogReset();
   if (repeatButton != (int8_t)btn) return;
 
@@ -1241,6 +1263,8 @@ static void onLongDuring(uint8_t btn) {
 static void onLongStop(uint8_t btn) {
   if (debugSerial) { Serial.print("Button "); Serial.print(btn + 1); Serial.println(" longPress stop"); }
   fct_WatchdogReset();
+  // A gomb felengedett: ha beragadtnak jelöltük, mostantól újra használható.
+  stuckButtons &= (uint8_t)~(1 << btn);
   if (repeatButton != (int8_t)btn) return;
   // A főciklus a keyReleaseDelay letelte után engedi fel a billentyűt.
   finishRepeat();

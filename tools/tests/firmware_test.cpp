@@ -1714,6 +1714,58 @@ int main() {
   for (int i = 0; i < 10; i++) { g_millis += 50; loop(); }
   std::cout << "-- R68 egyszerre nyomott gombok: nincs torlodas es nincs beragadas\n";
 
+  // R69) Fizikailag beragadt gomb: a longPressStop soha nem erkezik meg
+  loadDefaultKeymap();
+  send("CLEARSLOT 0"); send("CLEARSLOT 1");
+  disconnectPeer(0); disconnectPeer(1);
+  connectPeer(0, 0xA0);
+  jelenlegiUzemmod = normalUzemmod;      // G4 hosszu = ismetlodo le nyil
+  resetKeyState();
+  longPressStart4();
+  // 25 masodpercig meg rendes nyomva tartas: ismetel
+  for (int i = 0; i < 800; i++) { g_millis += 30; updateRepeatTap(); longPress4(); }
+  assert(g_keyCount > 0);
+  // 35 masodperc utan mar beragadtnak kell tekintenie
+  for (int i = 0; i < 400; i++) { g_millis += 30; updateRepeatTap(); longPress4(); loop(); }
+  int afterStuck = g_keyCount;
+  for (int i = 0; i < 200; i++) { g_millis += 30; updateRepeatTap(); longPress4(); loop(); }
+  if (g_keyCount != afterStuck) {
+    std::cout << "HIBA R69: a beragadt gomb tovabb szorja a billentyut ("
+              << (g_keyCount - afterStuck) << " tovabbi leutes)\n";
+    return 1;
+  }
+  // a) a tobbi gomb ujra hasznalhato
+  {
+    int before = g_keyCount;
+    resetKeyState();
+    click1();
+    if (g_keyCount == 0) {
+      std::cout << "HIBA R69: a beragadt gomb miatt a tobbi gomb is nema marad\n";
+      return 1;
+    }
+    (void)before;
+  }
+  // b) az eszkoz el tud aludni: a tetlensegi szamlalot mar nem nullazza
+  watchdogCounter = 0;
+  for (int i = 0; i < 50; i++) { g_millis += 30; longPress4(); watchdogCounter++; }
+  if (watchdogCounter == 0) {
+    std::cout << "HIBA R69: a beragadt gomb ebren tartja az eszkozt\n";
+    return 1;
+  }
+  // c) felengedes utan a gomb ujra mukodik
+  longPressStop4();
+  for (int i = 0; i < 10; i++) { g_millis += 50; loop(); }
+  resetKeyState();
+  longPressStart4(); longPress4();
+  if (g_keyCount == 0) {
+    std::cout << "HIBA R69: felengedes utan sem eled fel a gomb\n";
+    return 1;
+  }
+  longPressStop4();
+  for (int i = 0; i < 10; i++) { g_millis += 50; loop(); }
+  assert(!hasKeyPressed && pressedTargetCount == 0);
+  std::cout << "-- R69 beragadt gomb: leall, nem tiltja a tobbit, engedi az alvast\n";
+
   std::cout << "\nMINDEN TESZT SIKERES\n";
   return 0;
 }
