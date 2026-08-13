@@ -5,8 +5,14 @@ Ablakos (Tkinter) segédprogram, amivel a **3 üzemmód × 5 gomb × 3 esemény*
 állíthatók be, USB soros porton elküldhetők az eszköznek, és elmenthetők annak
 belső flash memóriájába.
 
-Emellett üzemmódonként megadható, hogy a parancsok **melyik eszközre** menjenek,
-ha az eszköz egyszerre két géphez (pl. Windows PC + telefon) csatlakozik.
+Cellánként állítható:
+
+- a **parancs** (billentyű-kombináció, média billentyű, üzemmód váltás,
+  nézetváltás),
+- a **cél eszköz** (ha az eszköz egyszerre két géphez csatlakozik, pl. Windows
+  PC + telefon) – üzemmódonként és gombonként is,
+- **rövid / dupla nyomásnál**: meddig menjen ki a parancs és milyen ismétléssel,
+- **hosszú nyomásnál**: az ismétlés üteme és módja.
 
 ## Indítás Windows alatt (ajánlott)
 
@@ -69,10 +75,8 @@ Linuxon `sudo apt install python3-tk`), és a `pyserial` csomag.
 
 A kiosztás **JSON fájlba** is menthető és onnan visszatölthető
 (*Mentés fájlba… / Megnyitás fájlból…*). A régebbi programmal mentett fájlok is
-betölthetők: a 4-esnél régebbi fájlverziónál az ismétlődő bejegyzések a
-*„külön leütések"* módra alakulnak, ahogy a firmware is teszi a saját mentésével.
-Az 5-ösnél régebbi fájlokból hiányzó küldési hossz 0 lesz, azaz a korábbi
-működés marad.
+betölthetők – az átalakításról a program tájékoztat, lásd a
+*Formátum-verziók* fejezetet.
 
 A `default_keymap.json` a firmware gyári kiosztását tartalmazza; a program
 indításkor ezt tölti be, így eszköz nélkül is szerkeszthető egy kiosztás.
@@ -151,6 +155,27 @@ Példa: `SET 0 0 2 1 12 21 0 60` → Normál üzemmód, Gomb 1, hosszú nyomás 
 
 A kiosztás CRC32-vel védve, a `/keymap.bin` fájlban tárolódik. Sérült vagy
 hiányzó fájl esetén a firmware automatikusan a gyári kiosztást használja.
+
+### Formátum-verziók
+
+| Mi | Jelenlegi | Hol jelenik meg |
+|----|-----------|-----------------|
+| Soros protokoll | **6** | `PING` válasza (`PROTO=6`); a konfiguráló program ennél régebbi firmware-hez nem csatlakozik |
+| Mentés az eszközön (`/keymap.bin`) | **4** | csak belül; a 2-es és 3-as mentést a firmware betöltéskor átalakítja |
+| Kiosztás-fájl (JSON) | **5** | a fájl `version` mezője |
+
+**Régi mentés az eszközön:** a 2-es és 3-as formátumú `keymap.bin` bejegyzései
+8 bájtosak voltak (nem volt bennük küldési hossz). A firmware felismeri a
+méretükből, átveszi a tartalmat, és a hiányzó küldési hosszt 0-nak veszi – azaz
+a korábbi működés marad. A 2-es mentésnél az ismétlődő bejegyzések a „külön
+leütések" módra is átállnak, mert abban a formátumban az ismétlés még végig
+lenyomva tartotta a billentyűt.
+
+**Régi kiosztás-fájl:** ugyanez a JSON-nál is megtörténik, de ott **nem néma** –
+a program kiírja, hány bejegyzést alakított át. Erre azért van szükség, mert a
+3-as fájlverzió kétértelmű: a „külön leütések" mód még ezzel a verziószámmal
+jelent meg, tehát egy 3-as fájlban a `repeat: 1` jelenthet szándékos „nyomva
+tartva" beállítást is.
 
 ## A parancs küldésének hossza (rövid és dupla nyomás)
 
@@ -278,6 +303,10 @@ az „Üzemmód váltás" típusnál, mert ezek nem küldenek semmit egyik eszk�
 | Gomb 5 | 🔊 Hangerő + | Az üzemmód célpontja (mindkettő) |
 
 Soros parancsból ugyanez a `SET` 9. mezője (lásd a protokoll-táblázatot).
+
+Ha egy kapcsolat menet közben megszakad, az eszköz elengedi a rá kiküldött
+billentyűket, és a folyamatban lévő ismétlést vagy időzített küldést lezárja –
+a következő gombnyomás már tiszta állapotból indul.
 
 **Amíg egyik eszköz sincs hozzárendelve, minden gombnyomás mindkét
 kapcsolatra kimegy** — így az eszköz párosítás után azonnal használható.

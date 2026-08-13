@@ -160,8 +160,12 @@ python zwift_config_gui.py
    kattints a táblázat bármelyik cellájára, majd **nyomd le a kívánt
    billentyű-kombinációt** – a program felveszi (a módosítók pipákkal is
    állíthatók, illetve média billentyű, üzemmód váltás vagy nézetváltás is
-   választható). A szerkesztő ablak alján a cella **saját cél eszköze** is
-   megadható, ha az adott parancsnak a többitől eltérő helyre kell mennie.
+   választható). A szerkesztő ablakban megadható még:
+   - a cella **saját cél eszköze**, ha az adott parancsnak a többitől eltérő
+     helyre kell mennie,
+   - **rövid nyomásnál és dupla kattintásnál**: meddig menjen ki a parancs
+     (50–5000 ms) és milyen ismétléssel,
+   - **hosszú nyomásnál**: az ismétlés üteme és módja.
 3. **Küldés az eszközre** – azonnal érvénybe lép.
 4. **Mentés az eszköz memóriájába** – hogy újraindítás után is megmaradjon.
 
