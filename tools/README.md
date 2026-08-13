@@ -78,8 +78,23 @@ A kiosztás **JSON fájlba** is menthető és onnan visszatölthető
 betölthetők – az átalakításról a program tájékoztat, lásd a
 *Formátum-verziók* fejezetet.
 
-A `default_keymap.json` a firmware gyári kiosztását tartalmazza; a program
-indításkor ezt tölti be, így eszköz nélkül is szerkeszthető egy kiosztás.
+### Hol van a gyári kiosztás?
+
+**Két helyen, és a kettőnek egyeznie kell:**
+
+| Hol | Mi | Mire jó |
+|-----|----|---------|
+| A firmware kódjában (`loadDefaultKeymap()`) | a 45 bejegyzés **bele van fordítva** a programba | ez az igazi forrás: ezt tölti be az eszköz, ha nincs mentés, ha a mentés sérült, és ezt állítja vissza a `DEFAULTS` |
+| `tools/default_keymap.json` | ugyanaz **adatfájlként** | ebből indul a konfiguráló program, hogy eszköz nélkül is lehessen kiosztást szerkeszteni |
+
+A gyári kiosztás tehát nem a flash memóriában lakik, hanem a programkódban –
+ezért nem is veszhet el: formázás vagy sérült mentés után is pontosan ugyanaz
+áll vissza. A `DEFAULTS` parancs csak a RAM-ba tölti be; hogy megmaradjon,
+utána **menteni kell** az eszköz memóriájába.
+
+A két példány egyezését az integrációs teszt **tételesen ellenőrzi** (mind a 45
+bejegyzés és a 3 üzemmód-célpont), a valódi firmware-kódtól lekérdezve – így
+nem csúszhatnak szét észrevétlenül.
 
 > A Win (GUI) billentyűt az operációs rendszer gyakran elkapja, ezért azt a
 > „Win” pipával érdemes beállítani a felvétel helyett. Ugyanez igaz az

@@ -621,6 +621,19 @@ void loadDefaultKeymap() {
   setAction(2, 4, EV_CLICK, ACT_CONSUMER, 0, HID_USAGE_CONSUMER_AL_CONSUMER_CONTROL_CONFIGURATION, 0, 0);
   setAction(2, 4, EV_DOUBLE, ACT_VIEW_CYCLE, 0, 0, 0, 0);
   setAction(2, 4, EV_LONG, ACT_CONSUMER, 0, HID_USAGE_CONSUMER_VOLUME_INCREMENT, REPEAT_TAPS, 70);
+
+  // Ahol nincs ismétlés, ott az ismétlési idő önmagában nem jelent semmit — de
+  // a SET parancs a 0-t úgyis 60-ra alakítja. Ha itt 0 maradna, a beolvasás →
+  // visszaküldés kör csendben megváltoztatná az értéket, és a konfiguráló
+  // program adatfájlja sem egyezne az eszköz kiosztásával. Ezért itt is a
+  // ugyanaz az alapérték.
+  for (uint8_t m = 0; m < ZW_NUM_MODES; m++) {
+    for (uint8_t b = 0; b < ZW_NUM_BUTTONS; b++) {
+      for (uint8_t e = 0; e < ZW_NUM_EVENTS; e++) {
+        if (keymap.map[m][b][e].repeatMs == 0) keymap.map[m][b][e].repeatMs = 60;
+      }
+    }
+  }
 }
 
 // A 2-es formátumban a repeat mező csak 0/1 lehetett, és az 1 azt jelentette,

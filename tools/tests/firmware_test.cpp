@@ -147,9 +147,9 @@ int main() {
   while ((pos = get.find("MAP ", pos)) != std::string::npos) { maps++; pos += 4; }
   assert(maps == 45);
   expect(get, "END", "GET/END");
-  expect(get, "MAP 0 0 0 1 0 80 0 0", "gyari: normal/G1/rovid = balra nyil (0x50=80)");
+  expect(get, "MAP 0 0 0 1 0 80 0 60", "gyari: normal/G1/rovid = balra nyil (0x50=80)");
   expect(get, "MAP 2 3 2 2 0 234 3 70 0", "gyari: media/G4/hosszu = hangero- ismetlo, kulon leutesek");
-  expect(get, "MAP 0 3 1 3 0 0 0 0", "gyari: normal/G4/dupla = uzemmod valtas");
+  expect(get, "MAP 0 3 1 3 0 0 0 60", "gyari: normal/G4/dupla = uzemmod valtas");
   std::cout << "-- GET ok (" << maps << " sor)\n";
 
   // 3) SET + visszaolvasas
@@ -636,7 +636,7 @@ int main() {
   send("ASSIGN 0 0"); send("ASSIGN 1 1");
 
   // R26) Gyari felulbiralas: a gepfuggo parancsok csak a PC-re mennek
-  expect(send("GET"), "MAP 2 0 2 1 12 21 0 0 1", "Media/G1/hosszu gyarilag csak PC");
+  expect(send("GET"), "MAP 2 0 2 1 12 21 0 60 1", "Media/G1/hosszu gyarilag csak PC");
   jelenlegiUzemmod = mediaVezerloUzemmod;       // az uzemmod celpontja: mindketto
   // a harom gepfuggo hosszu nyomas gyarilag CSAK a PC-re megy
   for (uint8_t b = 0; b < 3; b++) {

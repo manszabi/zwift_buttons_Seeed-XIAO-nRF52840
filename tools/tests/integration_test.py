@@ -6,7 +6,7 @@ TOOLS = Path(__file__).resolve().parent.parent
 REPO = TOOLS.parent
 sys.path.insert(0, str(TOOLS))
 
-import subprocess, sys, types, os
+import subprocess, sys, types, os, json
 tk = types.ModuleType("tkinter"); tk.TclError = Exception
 for n in ("Toplevel","Frame","Label","IntVar","Tk"): setattr(tk, n, object)
 sys.modules["tkinter"] = tk
@@ -14,7 +14,8 @@ for sub in ("filedialog","messagebox","ttk"):
     m = types.ModuleType("tkinter."+sub); sys.modules["tkinter."+sub] = m; setattr(tk, sub, m)
 tk.ttk.Frame = object
 import zwift_config_gui as g
-from hid_tables import (ACT_KEY, ACT_CONSUMER, ACT_VIEW_CYCLE, MOD_LCTRL, MOD_LSHIFT,
+from hid_tables import (MODE_NAMES, EVENT_NAMES,
+                        ACT_KEY, ACT_CONSUMER, ACT_VIEW_CYCLE, MOD_LCTRL, MOD_LSHIFT,
                         TARGET_PC, TARGET_PHONE, TARGET_ALL, TARGET_INHERIT, SLOT_PC, SLOT_PHONE,
                         REPEAT_ENABLED, REPEAT_RELEASE, REPEAT_HOLD_MOD)
 
@@ -138,6 +139,30 @@ try:
 except g.DeviceError as exc:
     check("ERR VALUE" in str(exc), "hosszu nyomasnal elutasitva: %s" % str(exc)[:60])
 link.load_defaults()
+
+print("\n[5d] A default_keymap.json EGYEZIK-e a firmware gyari kiosztasaval")
+# A gyari kiosztas a firmware kodjaba van beegetve (loadDefaultKeymap), a
+# konfiguralo program viszont a default_keymap.json-bol indul. A ketto
+# elcsuszasa azt jelentene, hogy a program mast mutat, mint amit az eszkoz
+# csinal - ezert itt tetelesen osszehasonlitjuk oket.
+link.load_defaults()
+fw_map, fw_targets = link.read_config()
+with open(str(TOOLS / "default_keymap.json"), encoding="utf-8") as fh:
+    file_map, file_targets = g._parse_keymap_file(json.load(fh))
+check(fw_targets == file_targets,
+      "uzemmod-celpontok: firmware=%s fajl=%s" % (fw_targets, file_targets))
+elteres = []
+for m in range(3):
+    for b in range(5):
+        for e in range(3):
+            a, f = fw_map[m][b][e], file_map[m][b][e]
+            if a.to_dict() != f.to_dict():
+                d1, d2 = a.to_dict(), f.to_dict()
+                diff = {k: (d1[k], d2[k]) for k in d1 if d1[k] != d2[k]}
+                elteres.append("%s/G%d/%s: %s"
+                               % (MODE_NAMES[m], b + 1, EVENT_NAMES[e], diff))
+check(not elteres, "mind a 45 bejegyzes egyezik" if not elteres
+      else "ELTERES (%d): %s" % (len(elteres), " | ".join(elteres[:3])))
 
 print("\n[6] Mentes es gyari visszaallitas")
 check(link.save_to_flash() == "OK SAVED", "SAVE")
