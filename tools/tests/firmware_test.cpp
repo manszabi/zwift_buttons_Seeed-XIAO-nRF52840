@@ -19,7 +19,7 @@ int g_keyReleaseCount = 0, g_consumerReleaseCount = 0;
 bool g_fsWriteFail = false; bool g_fsRenameFail = false; bool g_fsRemoveFail = false;
 std::vector<uint16_t> g_disconnected;
 uint8_t g_lastModifier = 0; uint8_t g_lastPressedCode = 0;
-int g_lastConnHdl = -1; int g_sentTo[8] = {0}; int g_notifyFail = 0; int g_releasedTo[8]={0};
+int g_lastConnHdl = -1; int g_sentTo[8] = {0}; bool g_pinLow[32] = {false}; int g_systemOffCount = 0; int g_notifyFail = 0; int g_releasedTo[8]={0};
 FakeConn g_conns[4] = {};
 BluefruitStub Bluefruit;
 cbfn g_pendingCb = nullptr;
@@ -117,6 +117,9 @@ static void expect(const std::string& got, const std::string& want, const char* 
 }
 
 int main() {
+  // A bekapcsolaskor mar nyomott gomb felismeresehez a tuske-allapotot a
+  // setup() ELOTT kell beallitani; a legtobb teszt szamara minden gomb szabad.
+  for (int i = 0; i < 32; i++) g_pinLow[i] = false;
   std::cout << "sizeof(KeyAction)=" << sizeof(KeyAction)
             << "  sizeof(KeymapConfig)=" << sizeof(KeymapConfig) << "\n";
   assert(sizeof(KeyAction) == 10);      // + holdMs (4-es formatum)
@@ -1765,6 +1768,71 @@ int main() {
   for (int i = 0; i < 10; i++) { g_millis += 50; loop(); }
   assert(!hasKeyPressed && pressedTargetCount == 0);
   std::cout << "-- R69 beragadt gomb: leall, nem tiltja a tobbit, engedi az alvast\n";
+
+  // R70) Bekapcsolaskor / ebredeskor mar nyomott gomb
+  // Az ebredes a System OFF-bol ujraindulas, ezert ez a ketto ugyanaz az eset.
+  {
+    // A Gomb 4 a 4-es tuskén van (BUTTON_PIN_INDEX). Beragadva indulunk.
+    g_pinLow[4] = true;
+    setup();                         // ujrainditas szimulalasa
+    send("DBG 0");
+    loadDefaultKeymap();
+    send("CLEARSLOT 0"); send("CLEARSLOT 1");
+    disconnectPeer(0); disconnectPeer(1);
+    connectPeer(0, 0xA0);
+    jelenlegiUzemmod = normalUzemmod;
+
+    resetKeyState();
+    longPressStart4();               // a OneButton 800 ms utan ezt kuldene
+    for (int i = 0; i < 100; i++) { g_millis += 30; updateRepeatTap(); longPress4(); loop(); }
+    if (g_keyCount != 0) {
+      std::cout << "HIBA R70: az induláskor nyomott gomb parancsa kiment ("
+                << g_keyCount << " leutes)\n";
+      return 1;
+    }
+    // a tobbi gomb kozben hasznalhato
+    resetKeyState();
+    click1();
+    assert(g_keyCount == 1);
+    for (int i = 0; i < 10; i++) { g_millis += 30; loop(); }
+    // es az eszkoz el tud aludni (a szamlalo no)
+    watchdogCounter = 0;
+    for (int i = 0; i < 50; i++) { g_millis += 30; longPress4(); watchdogCounter++; }
+    assert(watchdogCounter > 0);
+    // felengedes utan a gomb ujra mukodik
+    g_pinLow[4] = false;
+    longPressStop4();
+    for (int i = 0; i < 10; i++) { g_millis += 50; loop(); }
+    resetKeyState();
+    longPressStart4(); longPress4();
+    if (g_keyCount == 0) {
+      std::cout << "HIBA R70: felengedes utan sem eled fel a gomb\n";
+      return 1;
+    }
+    longPressStop4();
+    for (int i = 0; i < 10; i++) { g_millis += 50; loop(); }
+  }
+
+  // b) Alvas, amikor az EBRESZTO gomb van nyomva: a System OFF-ot a DETECT jel
+  //    azonnal megszakitana, ujrainditasi hurkot okozva.
+  g_systemOffCount = 0;
+  g_pinLow[WAKEUP_PIN] = true;
+  watchdogCounter = 0;
+  for (int i = 0; i < 1000; i++) fct_Watchdog();
+  if (g_systemOffCount != 0) {
+    std::cout << "HIBA R70: elaludt, pedig az ebreszto gomb nyomva van - "
+              << "azonnal ujraindulna\n";
+    return 1;
+  }
+  g_pinLow[WAKEUP_PIN] = false;
+  g_systemOffCount = 0;
+  fct_Watchdog();
+  if (g_systemOffCount != 1) {
+    std::cout << "HIBA R70: felengedes utan sem alszik el\n";
+    return 1;
+  }
+  fct_WatchdogReset();
+  std::cout << "-- R70 induláskor nyomott gomb es beragadt ebreszto gomb kezelve\n";
 
   std::cout << "\nMINDEN TESZT SIKERES\n";
   return 0;

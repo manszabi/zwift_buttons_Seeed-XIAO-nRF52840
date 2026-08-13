@@ -14,6 +14,10 @@ typedef uint8_t byte;
 extern unsigned long g_millis;
 inline unsigned long millis() { return g_millis; }
 inline void delay(unsigned long ms) { g_millis += ms; }
+// A gomb-tuskek allapota a tesztbol allithato: g_pinLow[pin] = true jelenti,
+// hogy a gomb LE VAN NYOMVA (a gombok aktiv-alacsonyak, felhuzo ellenallassal).
+extern bool g_pinLow[32];
+inline int digitalRead(int pin) { return g_pinLow[pin] ? LOW : HIGH; }
 inline void pinMode(int, int) {}
 inline void digitalWrite(int, int) {}
 extern uint32_t g_ADigitalPinMap[32];

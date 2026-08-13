@@ -360,9 +360,34 @@ Amint a gomb ténylegesen felengedett, minden korlátozás megszűnik, és a gom
 újra a szokásos módon működik. A 30 másodperc bőven a valós használat fölött
 van: a leghosszabb értelmes tartás (hangerő, ablakváltás) néhány másodperc.
 
-> Ha épp a **Gomb 2** (az ébresztő láb) ragad be, az eszköz elalvás után azonnal
-> újraindul, mert az ébresztési feltétel folyamatosan teljesül. Ilyenkor a gomb
-> mechanikai javítása az egyetlen megoldás.
+#### Ha már bekapcsoláskor be van ragadva
+
+Az ébredés az alvó módból a chip szintjén **újraindulás**, ezért a bekapcsolás
+és az ébredés ugyanaz az eset. A gombkezelő könyvtár a bekapcsoláskor már
+lenyomott gombot friss gombnyomásnak látná, és 0,8 másodperc múlva elsütné a
+hozzá tartozó hosszú nyomás parancsát.
+
+Ezért a firmware **indulásnál megnézi a gombok állapotát**, és amelyik már
+nyomva van, azt eleve figyelmen kívül hagyja – nem kell megvárni a 30
+másodperces felismerést, és a parancs egyszer sem megy ki tévedésből. A
+soros porton ez meg is jelenik:
+
+```
+Gomb 4 mar indulaskor nyomva - figyelmen kivul hagyom, amig fel nem engedik
+```
+
+A gomb az első tényleges felengedés után azonnal újra használható. (Ha csak
+azért tartottad nyomva, mert épp bedugtad az USB-t, semmit nem veszítesz:
+engedd el, és onnantól normálisan működik.)
+
+#### Ha az ébresztő gomb (Gomb 2) ragad be
+
+Az alvás ilyenkor **azonnali ébredéssel és újraindulással** járna, mert a chip
+az ébresztési feltételt már az elalvás pillanatában teljesítettnek látja. A
+firmware ezért **nem alszik el, amíg az ébresztő gomb nyomva van**, hanem
+másodpercenként újrapróbálja – amint a gomb felenged, elalszik. Így nem
+keletkezik újraindítási hurok; a gomb mechanikai javítása viszont ettől még
+szükséges, mert addig az eszköz ébren marad.
 
 ### Ha egy parancs küldése nem sikerül
 

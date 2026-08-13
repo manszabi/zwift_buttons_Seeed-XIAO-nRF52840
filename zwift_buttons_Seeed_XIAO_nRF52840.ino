@@ -112,6 +112,11 @@ OneButton button3(BUTTON_PIN[3], true);
 OneButton button4(BUTTON_PIN[4], true);
 OneButton button5(BUTTON_PIN[0], true);
 
+// Melyik tüskén van a Gomb 1..5. Ugyanaz, amit a fenti OneButton példányok
+// használnak; azért kell külön is, hogy a bekapcsoláskor már nyomott gombokat
+// fel tudjuk ismerni (a OneButton-t akkor még meg sem kérdezhetjük).
+static const uint8_t BUTTON_PIN_INDEX[] = { 1, 2, 3, 4, 0 };
+
 // A gombok sorrendje a kiosztás második indexe: Gomb 1..5.
 static OneButton* const buttons[] = {
   &button1, &button2, &button3, &button4, &button5
@@ -121,6 +126,8 @@ static OneButton* const buttons[] = {
 // dereferálna az első körben.
 static_assert(sizeof(buttons) / sizeof(buttons[0]) == ZW_NUM_BUTTONS,
               "a buttons[] tomb es a ZW_NUM_BUTTONS nem egyezik");
+static_assert(sizeof(BUTTON_PIN_INDEX) / sizeof(BUTTON_PIN_INDEX[0]) == ZW_NUM_BUTTONS,
+              "a BUTTON_PIN_INDEX es a ZW_NUM_BUTTONS nem egyezik");
 
 
 #define WAKEUP_PIN 2
@@ -174,6 +181,20 @@ void setup() {
   NRF_POWER->DCDCEN = 1;
 
   attachButtonCallbacks();
+
+  // Bekapcsoláskor (és ébredéskor, ami szintén újraindulás) már nyomott gomb
+  // szinte biztosan beragadt: a bekapcsolás pillanatában nem tartja senki
+  // nyomva. Ilyenkor eleve figyelmen kívül hagyjuk, amíg fel nem engedik —
+  // így nem kell megvárni a 30 másodperces felismerést, és a gomb parancsa
+  // egyszer sem megy ki tévedésből.
+  for (uint8_t i = 0; i < ZW_NUM_BUTTONS; i++) {
+    if (digitalRead(BUTTON_PIN[BUTTON_PIN_INDEX[i]]) == LOW) {
+      stuckButtons |= (uint8_t)(1 << i);
+      Serial.print("Gomb ");
+      Serial.print(i + 1);
+      Serial.println(" mar induláskor nyomva - figyelmen kivul hagyom, amig fel nem engedik");
+    }
+  }
 
   for (uint8_t i = 0; i < ZW_MAX_CONNECTIONS; i++) {
     connHandles[i] = BLE_CONN_HANDLE_INVALID;
@@ -411,6 +432,14 @@ void fct_powerdown() {
 void fct_Watchdog() {
   watchdogCounter++;
   if (watchdogCounter >= (uint32_t)offDelay) {
+    // Ha az ébresztő gomb épp nyomva van (tipikusan mert beragadt), az alvás
+    // azonnali ébredéssel és újraindulással járna: a System OFF-ot a DETECT jel
+    // rögtön megszakítja. Ilyenkor inkább ébren maradunk, és másodpercenként
+    // újrapróbáljuk — amint a gomb felenged, elalszunk.
+    if (digitalRead(WAKEUP_PIN) == LOW) {
+      watchdogCounter = (uint32_t)offDelay;
+      return;
+    }
     fct_powerdown();
   }
 }
@@ -1179,6 +1208,9 @@ void updateBurst() {
 static void onClick(uint8_t btn) {
   if (debugSerial) { Serial.print("Button "); Serial.print(btn + 1); Serial.println(" click."); }
   fct_WatchdogReset();
+  // Az induláskor nyomott gomb első eseménye még nem parancs: csak azt jelzi,
+  // hogy a gomb felszabadult.
+  if (stuckButtons & (1 << btn)) { stuckButtons &= (uint8_t)~(1 << btn); return; }
   // Futó időzített küldést ez a gombnyomás megszakítja, de a saját parancsa
   // már nem megy ki (lásd cancelBurst).
   if (burstActive) { cancelBurst(); return; }
@@ -1188,6 +1220,9 @@ static void onClick(uint8_t btn) {
 static void onDoubleClick(uint8_t btn) {
   if (debugSerial) { Serial.print("Button "); Serial.print(btn + 1); Serial.println(" doubleclick."); }
   fct_WatchdogReset();
+  // Az induláskor nyomott gomb első eseménye még nem parancs: csak azt jelzi,
+  // hogy a gomb felszabadult.
+  if (stuckButtons & (1 << btn)) { stuckButtons &= (uint8_t)~(1 << btn); return; }
   // Futó időzített küldést ez a gombnyomás megszakítja, de a saját parancsa
   // már nem megy ki (lásd cancelBurst).
   if (burstActive) { cancelBurst(); return; }
@@ -1197,8 +1232,10 @@ static void onDoubleClick(uint8_t btn) {
 static void onLongStart(uint8_t btn) {
   if (debugSerial) { Serial.print("Button "); Serial.print(btn + 1); Serial.println(" longPress start"); }
   fct_WatchdogReset();
+  // Bekapcsoláskor már nyomva volt: nem indítunk rá műveletet, és a jelölést is
+  // csak a tényleges felengedés (onLongStop) törli.
+  if (stuckButtons & (1 << btn)) return;
   longPressStartMillis[btn] = millis();
-  stuckButtons &= (uint8_t)~(1 << btn);
   if (burstActive) { cancelBurst(); return; }  // a futó küldést megszakítja
   const KeyAction& a = currentAction(btn, EV_LONG);
   if (isRepeating(a)) {
