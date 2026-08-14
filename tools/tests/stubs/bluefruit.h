@@ -55,8 +55,11 @@ extern int g_batteryPercent;
 // kuld ertesitest — a ketto kulon szamlalodik itt is.
 extern int g_batteryNotified[8];  // kapcsolatonkent utoljara ertesitett szazalek
 extern int g_batteryNotifyCount;
+// A valodi BLEBas::begin() err_t-t ad vissza (0 = rendben). A firmware ezt
+// megnezi, ezert a stub is visszaadja; g_basBeginErr-rel hibat lehet szimulalni.
+extern uint32_t g_basBeginErr;
 struct BLEBas {
-  void begin() {}
+  uint32_t begin() { return g_basBeginErr; }
   bool write(uint8_t p) { g_batteryPercent = p; return true; }
   bool notify(uint16_t conn_hdl, uint8_t p) {
     if (conn_hdl < 8) g_batteryNotified[conn_hdl] = p;
@@ -183,3 +186,30 @@ struct BluefruitStub {
   void disconnect(uint16_t h){ g_disconnected.push_back(h); }
 };
 extern BluefruitStub Bluefruit;
+
+// --- SoftDevice GATT szerver API (a "Service Changed" indikaciohoz) ---
+//
+// A valodi sd_ble_gatts_service_changed() csak akkor jar sikerrel, ha a peer
+// engedelyezte az indikaciot. Ez bondolt eszkoznel a mentett rendszer-
+// attributumokbol all vissza, ami a csatlakozas utan meg eltarthat egy ideig —
+// ezert a firmware ujraprobalkozik. A stub ezt modellezi: g_svcChangedFail > 0
+// eseten a kovetkezo ennyi hivas hibat ad.
+#define NRF_SUCCESS 0
+extern int g_svcChangedFail;                 // hany kovetkezo hivas bukjon el
+extern int g_svcChangedCount;                // osszes sikeres kikuldes
+extern int g_svcChangedTo[8];                // kapcsolatonkent hany sikeres
+extern uint16_t g_svcChangedStart;           // az utolso hivas kezdo handle-je
+extern uint16_t g_svcChangedEnd;
+inline uint32_t sd_ble_gatts_service_changed(uint16_t conn_hdl, uint16_t start,
+                                             uint16_t end) {
+  if (g_svcChangedFail > 0) { g_svcChangedFail--; return 8; /* NRF_ERROR_INVALID_STATE */ }
+  if (conn_hdl < 8) g_svcChangedTo[conn_hdl]++;
+  g_svcChangedCount++;
+  g_svcChangedStart = start;
+  g_svcChangedEnd = end;
+  return NRF_SUCCESS;
+}
+inline uint32_t sd_ble_gatts_initial_user_handle_get(uint16_t* p) {
+  *p = 0x000C;
+  return NRF_SUCCESS;
+}

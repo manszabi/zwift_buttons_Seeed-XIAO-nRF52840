@@ -40,7 +40,7 @@ class FakeSerial:
         self.out.append("Button 3 click.")
         head = cmd.split()[0].upper()
         if head == "PING":
-            self.out.append("OK ZWIFT_BUTTONS PROTO=6 MODES=3 BUTTONS=5 EVENTS=3 SLOTS=2 CONNS=2")
+            self.out.append("OK ZWIFT_BUTTONS PROTO=7 MODES=3 BUTTONS=5 EVENTS=3 SLOTS=2 CONNS=2")
         elif head == "DBG":
             self.out.append("OK DBG 0")
         elif head == "GET":
@@ -68,7 +68,7 @@ class FakeSerial:
 
 link = g.DeviceLink()
 link.ser = FakeSerial()
-assert link.command("PING").startswith("OK ZWIFT_BUTTONS PROTO=6")
+assert link.command("PING").startswith("OK ZWIFT_BUTTONS PROTO=7")
 
 km, targets = link.read_config()
 assert km[0][0][0].type == g.ACT_KEY and km[0][0][0].code == 0x50, km[0][0][0].to_dict()

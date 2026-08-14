@@ -84,7 +84,7 @@ class Breaking:
         if s.mode == "write" and s.reads >= 2:
             raise OSError("device disconnected")
         if cmd == "PING":
-            s.out.append("OK ZWIFT_BUTTONS PROTO=6 MODES=3 BUTTONS=5 EVENTS=3 SLOTS=2 CONNS=2")
+            s.out.append("OK ZWIFT_BUTTONS PROTO=7 MODES=3 BUTTONS=5 EVENTS=3 SLOTS=2 CONNS=2")
         elif cmd == "DBG": s.out.append("OK DBG 0")
         else: s.out.append("OK")
     def readline(s):

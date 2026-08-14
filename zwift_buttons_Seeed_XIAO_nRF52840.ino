@@ -190,11 +190,21 @@ uzemmod jelenlegiUzemmod = normalUzemmod;
 
 static unsigned long lastBatteryMillis = 0;
 
-static uint16_t readBatteryMillivolts() {
-  // 12 bit felbontas, 3,0 V-os belso referencia: 3000 mV / 4096 lepes.
-  uint32_t raw = (uint32_t)analogRead(ZW_VBAT_PIN);
+// Elindult-e egyáltalán az akkumulátor-szolgáltatás. Ha a GATT tábla betelne,
+// a blebas.begin() csendben hibát adna, és a szolgáltatás egyszerűen nem
+// létezne — a hoston pontosan úgy néz ki, mintha nem is küldenénk töltöttséget.
+// Ezért eltároljuk, és a `BAT` paranccsal le is lehet kérdezni.
+static bool basStarted = false;
+
+// 12 bit felbontas, 3,0 V-os belso referencia: 3000 mV / 4096 lepes, majd
+// vissza az 1 MΩ / 510 kΩ osztón.
+static uint16_t millivoltsFromAdc(uint32_t raw) {
   uint32_t adcMv = (raw * 3000UL) / 4096UL;
   return (uint16_t)((adcMv * 1510UL) / 510UL);
+}
+
+static uint16_t readBatteryMillivolts() {
+  return millivoltsFromAdc((uint32_t)analogRead(ZW_VBAT_PIN));
 }
 
 // Feszültség -> töltöttség. A LiPo kisülési görbéje nem lineáris: a
@@ -224,12 +234,16 @@ static uint8_t batteryPercent(uint16_t mv) {
 
 // Amit utoljára ki is értesítettünk. 0xFF = még semmit (a százalék 0…100).
 static uint8_t lastBatteryPercent = 0xFF;
+// Amit a GATT adatbázisban tartunk. Ezt olvassa ki a host csatlakozáskor, és
+// ezt toljuk ki egy frissen csatlakozott eszköznek is.
+static uint8_t currentBatteryPercent = 0;
 
 static void updateBattery(bool force) {
   unsigned long now = millis();
   if (!force && (now - lastBatteryMillis) < ZW_BATTERY_UPDATE_MS) return;
   lastBatteryMillis = now;
   uint8_t pct = batteryPercent(readBatteryMillivolts());
+  currentBatteryPercent = pct;
 
   // A helyi attribútum-érték frissítése. A BLEBas::write() a
   // sd_ble_gatts_value_set()-et hívja BLE_CONN_HANDLE_INVALID-dal, tehát a GATT
@@ -255,6 +269,124 @@ static void updateBattery(bool force) {
   lastBatteryPercent = pct;
   for (uint8_t i = 0; i < ZW_MAX_CONNECTIONS; i++) {
     if (connHandles[i] != BLE_CONN_HANDLE_INVALID) blebas.notify(connHandles[i], pct);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// A host GATT gyorsítótárának érvénytelenítése
+//
+// A párosított host (Windows, iPhone) ELTÁROLJA a szolgáltatás-táblánkat, és
+// újracsatlakozáskor nem deríti fel újra — a Bluetooth szabvány kifejezetten
+// megengedi neki (Core Spec Vol 3, Part G: a bondolt kliens gyorsítótárazhatja
+// a szerver attribútumait). Ennek a gyakorlati következménye az, hogy egy
+// firmware-frissítésben ÚJONNAN felvett szolgáltatás — például az
+// akkumulátor-szint — a már párosított gépen soha nem jelenik meg: a host a
+// régi, mentett táblát használja, amiben az még nincs benne. A HID rész
+// közben hibátlanul működik, mert az nem változott.
+//
+// Az egyetlen szabványos módja, hogy ezt megüzenjük: a GATT "Service Changed"
+// indikáció. Magát a jellemzőt a SoftDevice adja hozzá (a Bluefruit alapból
+// bekapcsolja), de kiküldeni nekünk kell — a könyvtár ezt nem teszi meg
+// helyettünk.
+//
+// Miért nem rögtön a csatlakozási visszahívásból: az indikáció csak akkor megy
+// ki, ha a peer engedélyezte rá az értesítést, és ezt a beállítást bondolt
+// eszköznél a mentett rendszer-attribútumokból állítja vissza a könyvtár —
+// ami a csatlakozás pillanatában még nem feltétlenül történt meg. Ezért
+// késleltetve, a főciklusból próbálkozunk, és hiba esetén megismételjük.
+// ---------------------------------------------------------------------------
+
+// Kapcsolatonként (a connHandles-szel azonos indexeléssel): hány próbálkozás
+// van még hátra, és mikor esedékes a következő.
+static uint8_t gattChangedTries[ZW_MAX_CONNECTIONS];
+static unsigned long gattChangedDue[ZW_MAX_CONNECTIONS];
+// Ugyanígy: kell-e még kitolni az aktuális töltöttséget az új kapcsolatnak.
+static bool batteryAnnounce[ZW_MAX_CONNECTIONS];
+static unsigned long batteryAnnounceDue[ZW_MAX_CONNECTIONS];
+
+static void clearConnTasks(uint8_t slot) {
+  gattChangedTries[slot] = 0;
+  batteryAnnounce[slot] = false;
+}
+
+// Az alkalmazás saját attribútumainak első handle-je: a SoftDevice a GAP és a
+// GATT szolgáltatást a tábla elején magának tartja fenn, a "megváltozott"
+// tartomány e fölött kezdődik.
+static uint16_t appHandleStart() {
+  uint16_t start = 0;
+  if (sd_ble_gatts_initial_user_handle_get(&start) != NRF_SUCCESS || start == 0) {
+    start = 0x000C;   // a SoftDevice szokásos első szabad handle-je
+  }
+  return start;
+}
+
+static void updateGattChanged() {
+  for (uint8_t i = 0; i < ZW_MAX_CONNECTIONS; i++) {
+    if (gattChangedTries[i] == 0) continue;
+
+    uint16_t h = connHandles[i];
+    if (h == BLE_CONN_HANDLE_INVALID || !Bluefruit.connected(h)) {
+      gattChangedTries[i] = 0;
+      continue;
+    }
+    // Az előjeles különbség a millis() túlcsordulásán is helyesen dönt.
+    if ((long)(millis() - gattChangedDue[i]) < 0) continue;
+
+    gattChangedTries[i]--;
+
+    // Párosítatlan eszköz nem tárol el semmit két kapcsolat között: az minden
+    // csatlakozáskor felderíti a teljes táblát, nincs mit érvényteleníteni.
+    // Ez viszont "még nem párosított"-at is jelenthet — a titkosítás felépülése
+    // eltarthat egy ideig —, ezért nem adjuk fel azonnal, hanem a többi hibával
+    // azonos módon újrapróbáljuk, amíg van próbálkozás.
+    BLEConnection* conn = Bluefruit.Connection(h);
+    if (conn == NULL || !conn->bonded()) {
+      if (gattChangedTries[i] > 0) gattChangedDue[i] = millis() + ZW_GATT_CHANGED_RETRY_MS;
+      continue;
+    }
+
+    uint32_t err = sd_ble_gatts_service_changed(h, appHandleStart(), 0xFFFF);
+    if (err == NRF_SUCCESS) {
+      gattChangedTries[i] = 0;
+      if (debugSerial) {
+        Serial.print("GATT-valtozas jelezve, conn_hdl=");
+        Serial.println(h);
+      }
+    } else if (gattChangedTries[i] == 0) {
+      // Elfogytak a próbálkozások. Nem végzetes: a host attól még működik,
+      // csak az újonnan felvett szolgáltatást nem fogja látni, amíg a
+      // párosítást kézzel meg nem újítják.
+      if (debugSerial) {
+        Serial.print("A GATT-valtozast nem sikerult jelezni, conn_hdl=");
+        Serial.print(h);
+        Serial.print(" hibakod=");
+        Serial.println((unsigned)err);
+      }
+    } else {
+      gattChangedDue[i] = millis() + ZW_GATT_CHANGED_RETRY_MS;
+    }
+  }
+}
+
+// Egy frissen csatlakozott eszköznek egyszer kitoljuk az aktuális töltöttséget,
+// hogy ne kelljen megvárnia a következő percenkénti frissítést.
+static void updateBatteryAnnounce() {
+  for (uint8_t i = 0; i < ZW_MAX_CONNECTIONS; i++) {
+    if (!batteryAnnounce[i]) continue;
+
+    uint16_t h = connHandles[i];
+    if (h == BLE_CONN_HANDLE_INVALID || !Bluefruit.connected(h)) {
+      batteryAnnounce[i] = false;
+      continue;
+    }
+    if ((long)(millis() - batteryAnnounceDue[i]) < 0) continue;
+
+    // Ugyanaz a megfontolás, mint az updateBattery()-ben: amíg egy parancs a
+    // levegőben van, ne versenyezzünk vele ugyanazért a HVN pufferért.
+    if (hasKeyPressed || hasConsumerKeyPressed || burstActive || duringLongpress) continue;
+
+    batteryAnnounce[i] = false;
+    blebas.notify(h, currentBatteryPercent);
   }
 }
 
@@ -328,6 +460,7 @@ void setup() {
 
   for (uint8_t i = 0; i < ZW_MAX_CONNECTIONS; i++) {
     connHandles[i] = BLE_CONN_HANDLE_INVALID;
+    clearConnTasks(i);
   }
 
   Bluefruit.configPrphConn(92, BLE_GAP_EVENT_LENGTH_MIN, 16, 16);
@@ -342,7 +475,15 @@ void setup() {
   bledis.setModel("ZWIFT_button");
   bledis.begin();
   blehid.begin();
-  blebas.begin();
+  // A visszatérési értéket meg KELL nézni: ha a GATT attribútum-tábla betelne,
+  // a szolgáltatás csendben létre sem jönne, és a hoston ez pontosan úgy néz
+  // ki, mintha nem küldenénk töltöttséget.
+  uint32_t basErr = blebas.begin();
+  basStarted = (basErr == 0);
+  if (!basStarted) {
+    Serial.print("HIBA: az akkumulator-szolgaltatas nem indult el, hibakod=");
+    Serial.println((unsigned)basErr);
+  }
   updateBattery(true);   // legyen mit mutatnia a csatlakozás pillanatában
   Bluefruit.Periph.setConnInterval(9, 12);
   Bluefruit.Periph.setConnectCallback(connect_callback);
@@ -389,6 +530,10 @@ void loop() {
   // A hardveres watchdog etetése: ha a főciklus megakad, a chip újraindul.
   hwWatchdogFeed();
   updateBattery(false);
+  // Csatlakozás utáni teendők: a host GATT gyorsítótárának érvénytelenítése,
+  // majd az aktuális töltöttség kitolása az új eszköznek.
+  updateGattChanged();
+  updateBatteryAnnounce();
 
   watchDOG.update();
   // A delay() ezen a magon vTaskDelay: átadja a vezérlést az ütemezőnek (és
@@ -422,6 +567,12 @@ void connect_callback(uint16_t conn_handle) {
   for (uint8_t i = 0; i < ZW_MAX_CONNECTIONS; i++) {
     if (connHandles[i] == BLE_CONN_HANDLE_INVALID) {
       connHandles[i] = conn_handle;
+      // A tényleges munkát a főciklus végzi el: ez a visszahívás másik
+      // (magasabb prioritású) taskról fut, itt csak feljegyezzük a teendőt.
+      gattChangedTries[i] = ZW_GATT_CHANGED_TRIES;
+      gattChangedDue[i] = millis() + ZW_GATT_CHANGED_DELAY_MS;
+      batteryAnnounce[i] = true;
+      batteryAnnounceDue[i] = millis() + ZW_BATTERY_ANNOUNCE_MS;
       break;
     }
   }
@@ -453,7 +604,10 @@ void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
   (void)reason;
   uint8_t used = 0;
   for (uint8_t i = 0; i < ZW_MAX_CONNECTIONS; i++) {
-    if (connHandles[i] == conn_handle) connHandles[i] = BLE_CONN_HANDLE_INVALID;
+    if (connHandles[i] == conn_handle) {
+      connHandles[i] = BLE_CONN_HANDLE_INVALID;
+      clearConnTasks(i);
+    }
   }
   for (uint8_t i = 0; i < ZW_MAX_CONNECTIONS; i++) {
     if (connHandles[i] != BLE_CONN_HANDLE_INVALID) used++;
@@ -1594,6 +1748,31 @@ static void cmdPeers() {
   Serial.println("END");
 }
 
+// BAT: az akkumulátor-mérés és -jelentés pillanatnyi állapota. Azért van, mert
+// a hoston egyetlen szám látszik (vagy semmi), és abból nem derül ki, hogy a
+// mérés rossz, a szolgáltatás nem indult el, vagy a host nem is kérdezi.
+//   RAW  – a nyers ADC érték (0…4095); 0 vagy 4095 mérési hibára utal
+//   MV   – ebből számolt akkumulátor-feszültség
+//   PCT  – a töltöttségi görbe szerinti százalék
+//   BAS  – elindult-e a BLE akkumulátor-szolgáltatás (1 = igen)
+//   SENT – amit utoljára ki is értesítettünk (-1 = még semmit)
+//   CONN – hány élő kapcsolat kapja
+static void cmdBat() {
+  uint32_t raw = (uint32_t)analogRead(ZW_VBAT_PIN);
+  uint16_t mv = millivoltsFromAdc(raw);
+  uint8_t conns = 0;
+  for (uint8_t i = 0; i < ZW_MAX_CONNECTIONS; i++) {
+    if (connHandles[i] != BLE_CONN_HANDLE_INVALID) conns++;
+  }
+  char line[96];
+  snprintf(line, sizeof(line), "OK BAT RAW=%lu MV=%u PCT=%u BAS=%u SENT=%d CONN=%u",
+           (unsigned long)raw, (unsigned)mv, (unsigned)batteryPercent(mv),
+           (unsigned)(basStarted ? 1 : 0),
+           (lastBatteryPercent == 0xFF) ? -1 : (int)lastBatteryPercent,
+           (unsigned)conns);
+  Serial.println(line);
+}
+
 static void cmdSetTarget(const char* args) {
   unsigned m, mask;
   if (sscanf(args, "%u %u", &m, &mask) != 2) {
@@ -1802,6 +1981,8 @@ static void processCommand(char* cmd) {
     Serial.println("OK DEFAULTS");
   } else if (strcmp(cmd, "MODE") == 0) {
     cmdMode(args);
+  } else if (strcmp(cmd, "BAT") == 0) {
+    cmdBat();
   } else if (strcmp(cmd, "DBG") == 0) {
     unsigned n;
     if (sscanf(args, "%u", &n) == 1) debugSerial = (n != 0);

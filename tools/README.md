@@ -137,7 +137,7 @@ használható – minden parancs `Enter`-rel zárul.
 
 | Parancs | Válasz | Leírás |
 |---------|--------|--------|
-| `PING` | `OK ZWIFT_BUTTONS PROTO=6 MODES=3 BUTTONS=5 EVENTS=3 SLOTS=2 CONNS=2` | Eszköz azonosítás |
+| `PING` | `OK ZWIFT_BUTTONS PROTO=7 MODES=3 BUTTONS=5 EVENTS=3 SLOTS=2 CONNS=2` | Eszköz azonosítás |
 | `GET` | 45 db `MAP …` (10 mező), 3 db `TARGET …` sor, majd `END` | A teljes konfiguráció lekérése |
 | `SETTARGET <m> <maszk>` | `OK` / `ERR …` | Üzemmód cél-eszköze (1 = PC, 2 = telefon, 3 = mindkettő) |
 | `PEERS` | `SLOT …` / `CONN …` sorok, majd `END` | Fiókok és élő BLE kapcsolatok |
@@ -149,6 +149,7 @@ használható – minden parancs `Enter`-rel zárul.
 | `DEFAULTS` | `OK DEFAULTS` | Gyári kiosztás betöltése (mentés nélkül) |
 | `MODE [n]` | `OK MODE <n>` | Aktuális üzemmód lekérdezése / beállítása |
 | `DBG <0\|1>` | `OK DBG <n>` | A gombok debug kiírásainak ki/be kapcsolása |
+| `BAT` | `OK BAT RAW=<n> MV=<n> PCT=<n> BAS=<0\|1> SENT=<n> CONN=<n>` | Az akkumulátor-mérés és -jelentés állapota (lásd lent) |
 
 A `MAP` / `SET` mezői:
 
@@ -170,6 +171,25 @@ Példa: `SET 0 0 2 1 12 21 0 60` → Normál üzemmód, Gomb 1, hosszú nyomás 
 
 A kiosztás CRC32-vel védve, a `/keymap.bin` fájlban tárolódik. Sérült vagy
 hiányzó fájl esetén a firmware automatikusan a gyári kiosztást használja.
+
+### A `BAT` parancs
+
+Ha a Windows vagy a telefon nem mutatja a töltöttséget, ez a parancs mondja meg,
+hol akadt el. Bármely soros terminálból kiadható (115200 baud), pl. az Arduino
+IDE soros monitorából:
+
+| Mező | Jelentés |
+|------|----------|
+| `RAW` | a nyers ADC érték (0…4095). Tartósan `0` vagy `4095`: mérési hiba (rossz láb, elszállt referencia) |
+| `MV` | a mért akkumulátor-feszültség mV-ban (az 1 MΩ / 510 kΩ osztóval visszaszámolva). Egy ép LiPo 3000…4200 mV között van |
+| `PCT` | a töltöttségi görbe szerinti százalék – ezt küldjük a hostnak |
+| `BAS` | elindult-e a BLE akkumulátor-szolgáltatás. **`0` esetén a szolgáltatás létre sem jött**, a host jogosan nem mutat semmit |
+| `SENT` | amit utoljára ki is értesítettünk (`-1` = még semmit) |
+| `CONN` | hány élő BLE kapcsolat van |
+
+Ha a `BAT` értelmes `MV`/`PCT` értéket ad és `BAS=1`, akkor a firmware oldalán
+minden rendben van, és a host mutatja a régi, elmentett szolgáltatás-listát –
+lásd [„Ha nem látszik a töltöttség"](../README.md#ha-nem-látszik-a-töltöttség).
 
 ### Ha mentés közben megszakad az áram
 
@@ -209,7 +229,7 @@ Ugyanez a mechanizmus védi az **üzemmód** mentését is.
 
 | Mi | Jelenlegi | Hol jelenik meg |
 |----|-----------|-----------------|
-| Soros protokoll | **6** | `PING` válasza (`PROTO=6`); a konfiguráló program ennél régebbi firmware-hez nem csatlakozik |
+| Soros protokoll | **7** | `PING` válasza (`PROTO=7`); a konfiguráló programnak legalább **6** kell, régebbi firmware-hez nem csatlakozik |
 | Mentés az eszközön (`/keymap.bin`) | **4** | csak belül; a 2-es és 3-as mentést a firmware betöltéskor átalakítja |
 | Kiosztás-fájl (JSON) | **5** | a fájl `version` mezője |
 
