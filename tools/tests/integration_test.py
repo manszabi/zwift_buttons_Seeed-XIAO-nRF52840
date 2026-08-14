@@ -39,7 +39,7 @@ link.ser = ProcSerial(str(Path(__file__).resolve().parent / "bridge"))
 
 print("[1] Kezfogas")
 info = link.command("PING")
-check(info.startswith("OK ZWIFT_BUTTONS PROTO=6"), "PING: " + info)
+check(info.startswith("OK ZWIFT_BUTTONS PROTO=7"), "PING: " + info)
 check("SLOTS=2" in info and "CONNS=2" in info, "az eszkoz jelenti a fiokok/kapcsolatok szamat")
 link.command("DBG 0")
 

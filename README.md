@@ -18,7 +18,7 @@ Az eszköz 5 fizikai gombbal rendelkezik, és 3 különböző üzemmódot támog
 - **Üzemmód-mentés** – Az aktuális üzemmód a belső flash-memóriába mentődik, újraindítás után is megmarad
 - **Kiosztás-mentés** – A gomb-kiosztás is a belső flash-memóriába kerül (CRC-vel védve), újraindítás után is megmarad
 - **LED visszajelzés** – 3 szín (piros, kék, zöld) jelzi az aktuális üzemmódot; a LED **2 másodpercre villan fel** bekapcsoláskor és üzemmódváltáskor, utána elalszik (folyamatosan égve ez fogyasztaná a legtöbbet). Az eszköz sötéten indul: a felvillanás már az üzemmód valódi színe
-- **Akkumulátor-szint** – az eszköz BLE-n jelenti a töltöttséget, így a telefon és a Windows is mutatja; két csatlakozott gép esetén mindkettő megkapja a frissítést
+- **Akkumulátor-szint** – az eszköz BLE-n jelenti a töltöttséget, így a telefon és a Windows is mutatja; két csatlakozott gép esetén mindkettő megkapja a frissítést ([ha nem látszik](#-akkumulátor-szint))
 - **Hardveres watchdog** – ha a firmware valaha megakadna, a chip **10 másodperc után** magától újraindul; a mentett üzemmód és kiosztás miatt ez észrevétlen
 - **Hibatűrés** – a megszakadó BLE kapcsolat, az elveszett HID jelentés és a fizikailag beragadt gomb is kezelve van, hogy ne maradjon beragadt billentyű a számítógépnél ([részletek](tools/README.md#ha-megszakad-egy-kapcsolat))
 - **Automatikus kikapcsolás** – 900 másodperc (15 perc) inaktivitás után alvó módba lép az energiatakarékosság érdekében
@@ -256,6 +256,42 @@ A többi könyvtár a board csomaggal együtt települ.
    „Eszközök hozzárendelése…" ablakában add meg, melyik a PC és melyik a telefon
 6. **Alvó mód** – 15 perc inaktivitás után automatikusan alvó módba lép
 7. **Ébresztés** – Nyomd meg a Gomb 2-t (D2 pin) az alvó módból való felébresztéshez
+
+---
+
+## 🔋 Akkumulátor-szint
+
+Az eszköz a szabványos BLE **Battery Service**-en (0x180F) jelenti a
+töltöttséget, így a Windows a Bluetooth-eszközök listájában, az iPhone pedig az
+Elemek („Batteries") widgetben mutatja. Percenként mérünk; értesítést csak akkor
+küldünk, ha a százalék megváltozott, illetve egyszer minden új kapcsolatnak.
+
+### Ha nem látszik a töltöttség
+
+**A leggyakoribb ok, hogy a gép a régi, elmentett szolgáltatás-listát
+használja.** A párosított host (Windows, iPhone) eltárolja, milyen BLE
+szolgáltatásaink vannak, és újracsatlakozáskor nem kérdezi meg újra – ezt a
+Bluetooth szabvány kifejezetten megengedi neki. Ezért egy **firmware-
+frissítésben újonnan felvett** szolgáltatás a **már korábban párosított** gépen
+nem jelenik meg: a gombok tökéletesen működnek (a HID rész nem változott), de az
+akkumulátor-szint hiányzik, mert a mentett listában még nincs benne.
+
+A firmware ezt magától próbálja rendbe tenni: csatlakozás után kiküld egy GATT
+„Service Changed" indikációt, amitől a host újra felderíti a szolgáltatásokat.
+Ha ez valamiért nem jut célba, kézzel kell megújítani a párosítást:
+
+| Eszköz | Mit kell tenni |
+|--------|----------------|
+| Windows | Beállítások → Bluetooth és eszközök → a `SEEED_ZWIFT`-nél „Eszköz eltávolítása", majd párosítás újra |
+| iPhone | Beállítások → Bluetooth → az `i` gomb a `SEEED_ZWIFT` mellett → „Eszköz elfelejtése", majd párosítás újra |
+
+Utána a hozzárendeléseket (PC / telefon) érdemes ellenőrizni a konfiguráló
+program „Eszközök hozzárendelése…" ablakában, mert a párosítás megújításával a
+BLE cím megváltozhat.
+
+**Ha az újrapárosítás után sem látszik**, akkor a mérés vagy a szolgáltatás
+maga a hibás – ezt a konfiguráló program soros portján a `BAT` paranccsal
+lehet megnézni (részletek: [`tools/README.md`](tools/README.md#soros-protokoll)).
 
 ---
 

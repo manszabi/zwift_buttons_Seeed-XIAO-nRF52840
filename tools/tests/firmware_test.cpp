@@ -21,6 +21,9 @@ std::vector<uint16_t> g_disconnected;
 uint8_t g_lastModifier = 0; uint8_t g_lastPressedCode = 0;
 int g_lastConnHdl = -1; int g_sentTo[8] = {0}; bool g_pinLow[32] = {false}; bool g_pinOut[32] = {false}; int g_systemOffCount = 0; int g_adcRaw = 0; int g_batteryPercent = -1; int g_batteryNotified[8] = {-1,-1,-1,-1,-1,-1,-1,-1}; int g_batteryNotifyCount = 0;
 static WdtRegs g_wdtRegs; WdtRegs* NRF_WDT = &g_wdtRegs; int g_notifyFail = 0; int g_releasedTo[8]={0};
+uint32_t g_basBeginErr = 0;
+int g_svcChangedFail = 0; int g_svcChangedCount = 0; int g_svcChangedTo[8] = {0};
+uint16_t g_svcChangedStart = 0; uint16_t g_svcChangedEnd = 0;
 FakeConn g_conns[4] = {};
 BluefruitStub Bluefruit;
 cbfn g_pendingCb = nullptr;
@@ -189,7 +192,7 @@ int main() {
   std::cout << "-- 1 BLE kapcsolat felepult (conn_hdl=0)\n";
 
   // 1) PING
-  expect(send("PING"), "OK ZWIFT_BUTTONS PROTO=6 MODES=3 BUTTONS=5 EVENTS=3 SLOTS=2 CONNS=2", "PING");
+  expect(send("PING"), "OK ZWIFT_BUTTONS PROTO=7 MODES=3 BUTTONS=5 EVENTS=3 SLOTS=2 CONNS=2", "PING");
   send("DBG 0");
 
   // 2) GET: 45 MAP sor + END
@@ -2147,6 +2150,171 @@ int main() {
     connectPeer(0, 0xA0);
   }
   std::cout << "-- R75 akku-szint: minden elo kapcsolat kap ertesitest\n";
+
+  // R76) A host GATT gyorsitotaranak ervenytelenitese. Ez az oka annak, hogy egy
+  //      firmware-frissitesben UJONNAN felvett szolgaltatas (pl. az akku-szint)
+  //      a mar parositott gepen nem jelenik meg: a bondolt host a mentett
+  //      szolgaltatas-tablat hasznalja. A "Service Changed" indikacio szol neki,
+  //      hogy deritse fel ujra.
+  {
+    disconnectPeer(0); disconnectPeer(1);
+    resetKeyState();
+    g_svcChangedCount = 0; g_svcChangedFail = 0;
+    for (int i = 0; i < 8; i++) g_svcChangedTo[i] = 0;
+
+    // a) Bondolt kapcsolat: a jelzes NEM azonnal megy ki, hanem kesleltetve —
+    //    a titkositas es a mentett CCCD-k visszaallitasa meg tarthat.
+    connectPeer(0, 0xA0, true);
+    loop();
+    if (g_svcChangedCount != 0) {
+      std::cout << "HIBA R76: a GATT-valtozas azonnal kiment, kesleltetes nelkul\n";
+      return 1;
+    }
+    g_millis += ZW_GATT_CHANGED_DELAY_MS + 1;
+    loop();
+    if (g_svcChangedTo[0] != 1) {
+      std::cout << "HIBA R76: a bondolt kapcsolat nem kapott GATT-valtozas jelzest ("
+                << g_svcChangedTo[0] << ")\n";
+      return 1;
+    }
+    // A tartomany az alkalmazas elso handle-jetol a tabla vegeig tart.
+    if (g_svcChangedStart != 0x000C || g_svcChangedEnd != 0xFFFF) {
+      std::cout << "HIBA R76: rossz handle-tartomany (" << g_svcChangedStart
+                << ".." << g_svcChangedEnd << ")\n";
+      return 1;
+    }
+
+    // b) Kapcsolatonkent EGYSZER, nem minden korben: folosleges radioforgalom
+    //    lenne, es a host minden jelzesre ujra felderitene a tablat.
+    for (int i = 0; i < 20; i++) { g_millis += 1000; loop(); }
+    if (g_svcChangedTo[0] != 1) {
+      std::cout << "HIBA R76: ismetelten megy ki a jelzes (" << g_svcChangedTo[0] << ")\n";
+      return 1;
+    }
+
+    // c) Ha a peer meg nem engedelyezte az indikaciot, a SoftDevice hibat ad.
+    //    Ilyenkor ujra kell probalni: a mentett rendszer-attributumok
+    //    visszaallitasa kesobb is megtortenhet.
+    disconnectPeer(0);
+    for (int i = 0; i < 8; i++) g_svcChangedTo[i] = 0;
+    g_svcChangedFail = 2;
+    connectPeer(0, 0xA0, true);
+    g_millis += ZW_GATT_CHANGED_DELAY_MS + 1;
+    loop();
+    if (g_svcChangedTo[0] != 0) {
+      std::cout << "HIBA R76: a stub hibat adott, megis sikeresnek szamit\n";
+      return 1;
+    }
+    for (int i = 0; i < 3; i++) { g_millis += ZW_GATT_CHANGED_RETRY_MS + 1; loop(); }
+    if (g_svcChangedTo[0] != 1) {
+      std::cout << "HIBA R76: hiba utan nem probalja ujra (" << g_svcChangedTo[0] << ")\n";
+      return 1;
+    }
+
+    // d) Tartos hiba eseten a probalkozas veget er, nem porog vegtelenul.
+    disconnectPeer(0);
+    for (int i = 0; i < 8; i++) g_svcChangedTo[i] = 0;
+    g_svcChangedFail = 1000;
+    connectPeer(0, 0xA0, true);
+    for (int i = 0; i < 30; i++) { g_millis += ZW_GATT_CHANGED_RETRY_MS + 1; loop(); }
+    if (g_svcChangedFail != 1000 - ZW_GATT_CHANGED_TRIES) {
+      std::cout << "HIBA R76: nem pont " << ZW_GATT_CHANGED_TRIES
+                << " probalkozas tortent (maradek=" << g_svcChangedFail << ")\n";
+      return 1;
+    }
+    g_svcChangedFail = 0;
+
+    // e) Parositatlan eszkoz semmit nem tarolt el ket kapcsolat kozott: az
+    //    minden csatlakozaskor felderiti a tablat, neki nincs mit jelezni.
+    disconnectPeer(0);
+    for (int i = 0; i < 8; i++) g_svcChangedTo[i] = 0;
+    connectPeer(0, 0xA0, false);
+    for (int i = 0; i < 10; i++) { g_millis += ZW_GATT_CHANGED_RETRY_MS + 1; loop(); }
+    if (g_svcChangedTo[0] != 0) {
+      std::cout << "HIBA R76: parositatlan eszkoznek is megy GATT-valtozas jelzes\n";
+      return 1;
+    }
+    disconnectPeer(0);
+
+    // f) A parositas kesobb is befejezodhet, mint ahogy az elso probalkozas
+    //    esedekes lenne. Ilyenkor nem szabad veglegesen feladni: ez pont az az
+    //    eset, amikor a hostnak a legnagyobb szuksege van a jelzesre.
+    for (int i = 0; i < 8; i++) g_svcChangedTo[i] = 0;
+    connectPeer(0, 0xA0, false);
+    g_millis += ZW_GATT_CHANGED_DELAY_MS + 1;
+    loop();
+    g_conns[0].bonded = true;           // most fejezodott be a parositas
+    g_millis += ZW_GATT_CHANGED_RETRY_MS + 1;
+    loop();
+    if (g_svcChangedTo[0] != 1) {
+      std::cout << "HIBA R76: a kesobb parositott eszkoz nem kapott jelzest ("
+                << g_svcChangedTo[0] << ")\n";
+      return 1;
+    }
+    disconnectPeer(0);
+  }
+  std::cout << "-- R76 GATT-valtozas jelzese: bondolt hosttal ujra felderitteti a tablat\n";
+
+  // R77) Frissen csatlakozott eszkoz megkapja az aktualis toltottseget, nem kell
+  //      megvarnia a kovetkezo percenkenti frissitest.
+  {
+    disconnectPeer(0); disconnectPeer(1);
+    resetKeyState();
+    g_adcRaw = 1706;
+    updateBatteryTest(true);            // legyen ismert aktualis ertek
+    int pct = g_batteryPercent;
+
+    for (int i = 0; i < 8; i++) g_batteryNotified[i] = -1;
+    connectPeer(1, 0xB0, true);
+    loop();
+    if (g_batteryNotified[1] != -1) {
+      std::cout << "HIBA R77: azonnal ertesit, kesleltetes nelkul\n";
+      return 1;
+    }
+    g_millis += ZW_BATTERY_ANNOUNCE_MS + 1;
+    loop();
+    if (g_batteryNotified[1] != pct) {
+      std::cout << "HIBA R77: az uj kapcsolat nem kapta meg a toltottseget ("
+                << g_batteryNotified[1] << " helyett " << pct << ")\n";
+      return 1;
+    }
+
+    // Egyszer, es csak neki: a masik kapcsolatot nem zavarjuk vele.
+    g_batteryNotifyCount = 0;
+    for (int i = 0; i < 10; i++) { g_millis += 1000; loop(); }
+    if (g_batteryNotifyCount != 0) {
+      std::cout << "HIBA R77: ismetelten ertesit a csatlakozas utan\n";
+      return 1;
+    }
+    disconnectPeer(1);
+  }
+  std::cout << "-- R77 uj kapcsolat azonnal megkapja az akku-szintet\n";
+
+  // R78) A BAT parancs: a hoston egyetlen szam latszik (vagy semmi), ebbol kell
+  //      kideruljon, hogy a meres rossz, a szolgaltatas nem indult el, vagy a
+  //      host nem is kerdezi.
+  {
+    disconnectPeer(0); disconnectPeer(1);
+    connectPeer(0, 0xA0, true);
+    g_adcRaw = 1936;                    // ~4,2 V
+    updateBatteryTest(true);
+    std::string r = send("BAT");
+    if (r.find("OK BAT RAW=1936 ") != 0 || r.find(" BAS=1 ") == std::string::npos
+        || r.find(" CONN=1") == std::string::npos) {
+      std::cout << "HIBA R78: rossz BAT valasz: " << r << "\n";
+      return 1;
+    }
+    // A jelentett szazalek ugyanaz, amit a BLE-n is kikuldtunk.
+    char pctMezo[16], sentMezo[16];
+    snprintf(pctMezo, sizeof(pctMezo), " PCT=%d ", g_batteryPercent);
+    snprintf(sentMezo, sizeof(sentMezo), " SENT=%d ", g_batteryPercent);
+    if (r.find(pctMezo) == std::string::npos || r.find(sentMezo) == std::string::npos) {
+      std::cout << "HIBA R78: a BAT mast jelent, mint amit kikuldtunk: " << r
+                << " (vart:" << pctMezo << "es" << sentMezo << ")\n";
+      return 1;
+    }
+  }
+  std::cout << "-- R78 BAT parancs jelenti a meres es a szolgaltatas allapotat\n";
 
   std::cout << "\nMINDEN TESZT SIKERES\n";
   return 0;

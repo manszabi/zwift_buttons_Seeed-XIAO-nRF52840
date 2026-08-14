@@ -56,6 +56,10 @@ utánzata az Arduino, a Bluefruit BLE és a LittleFS API-nak:
 - a chip perifériáiból megvan a **watchdog** (`NRF_WDT`), az ADC
   (`analogRead`) és a **System OFF** hívás, így az újraindulás-védelem, az
   akkumulátor-mérés és az elalvás is ellenőrizhető,
+- a SoftDevice `sd_ble_gatts_service_changed()` hívása is megvan, és a valódihoz
+  hasonlóan **hibázhat** (`g_svcChangedFail`), amíg a peer nem engedélyezte az
+  indikációt – így ellenőrizhető, hogy a firmware újrapróbálkozik, de nem
+  végtelenül,
 - `millis()` és `delay()` a tesztből léptethető, így az időzítések
   ellenőrizhetők valós várakozás nélkül.
 

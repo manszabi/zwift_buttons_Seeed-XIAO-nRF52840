@@ -68,6 +68,21 @@
 // Milyen gyakran mérjük és jelentsük az akkumulátor töltöttségét.
 #define ZW_BATTERY_UPDATE_MS 60000
 
+// Csatlakozás után mennyivel jelezzük a hostnak, hogy változhatott a GATT
+// szolgáltatás-tábla (lásd az updateGattChanged() fölötti magyarázatot a
+// .ino-ban), és hányszor próbáljuk meg. A késleltetés azért kell, mert a
+// titkosítás felépülése és a mentett CCCD-k visszaállítása még folyamatban
+// lehet közvetlenül a csatlakozás után — addig az indikáció nem menne ki.
+#define ZW_GATT_CHANGED_DELAY_MS 3000
+#define ZW_GATT_CHANGED_RETRY_MS 2000
+#define ZW_GATT_CHANGED_TRIES 5
+
+// Csatlakozás után ennyivel toljuk ki az új eszköznek az aktuális töltöttséget.
+// A GATT-változás jelzése után legyen, hogy a host már az újrafelderített
+// szolgáltatásra kapja meg. (A host magától is kiolvassa az értéket, ez csak
+// azért van, hogy ne kelljen megvárnia a következő percenkénti frissítést.)
+#define ZW_BATTERY_ANNOUNCE_MS 6000
+
 // Ha egy gombot ennél tovább tartanak nyomva, az szinte biztosan fizikai
 // beragadás: a leghosszabb értelmes tartás (hangerő, Alt+Tab ablakváltás)
 // nagyságrendekkel rövidebb. A firmware ilyenkor figyelmen kívül hagyja a
@@ -90,7 +105,8 @@
 #define ZW_KEYMAP_MIN_VERSION 2
 
 // Az eszköz és a Python konfiguráló program közti protokoll verziója.
-#define ZW_PROTO_VERSION 6
+// 7: új `BAT` parancs (akkumulátor-mérés diagnosztika).
+#define ZW_PROTO_VERSION 7
 
 // Üzemmódok. A sorszám egyben a keymap első indexe is.
 // (Azért itt, és nem a .ino-ban: az Arduino a vázlat elejére generálja a
