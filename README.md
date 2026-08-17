@@ -280,7 +280,9 @@ ADC mintavételi idő** kell – az Arduino könyvtár alapértelmezése viszont
 ami csak 10 kΩ-ig elég. Alapértelmezetten hagyva a mintavevő kondenzátor nem
 töltődik fel, és a mérés rendszeresen kevesebbet mutat a valóságosnál, ezért a
 firmware 40 µs-ra állítja, és nyolc mintát átlagoltat a hardverrel (a BLE adás
-áramlökései miatt).
+áramlökései miatt). Induláskor – és így minden alvásból ébredéskor – lefut az
+ADC eltolás-kalibrálása is; hogy sikerült-e, a `BAT` parancs `CAL` mezője
+mutatja.
 
 **Töltés közben** a töltő a cellát a végfeszültségen (~4,2 V) tartja, ezért a
 töltöttség ilyenkor a valóságosnál magasabbnak látszik. Ez minden

@@ -68,6 +68,11 @@
 // Milyen gyakran mérjük és jelentsük az akkumulátor töltöttségét.
 #define ZW_BATTERY_UPDATE_MS 60000
 
+// Meddig várjuk meg az ADC eltolás-kalibrálását. A hardver ~120 µs alatt végez;
+// ez a korlát csak azért van, hogy egy beragadt periféria ne fagyassza le az
+// eszközt (lásd az adcCalibrateOffset() fölötti magyarázatot).
+#define ZW_ADC_CALIB_TIMEOUT_MS 5
+
 // Csatlakozás után mennyivel jelezzük a hostnak, hogy változhatott a GATT
 // szolgáltatás-tábla (lásd az updateGattChanged() fölötti magyarázatot a
 // .ino-ban), és hányszor próbáljuk meg. A késleltetés azért kell, mert a

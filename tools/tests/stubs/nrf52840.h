@@ -13,3 +13,27 @@ extern WdtRegs* NRF_WDT;
 #define WDT_CONFIG_SLEEP_Pos 0
 #define WDT_RREN_RR0_Msk 1
 #define WDT_RR_RR_Reload 0x6E524635UL
+
+// A SAADC-bol csak az eltolas-kalibralashoz kello regiszterek. A valodi chipen a
+// TASKS_CALIBRATEOFFSET irasa inditja a kalibralast, es a HARDVER allitja be
+// kesobb az EVENTS_CALIBRATEDONE-t; a stub ezt azonnal megteszi.
+//
+// g_saadcCalibStuck = true eseten a kesz-jelzes sosem jon meg: igy ellenorizheto,
+// hogy a firmware idokorlatja tenyleg kivezet a varakozasbol. A konyvtar sajat
+// analogCalibrateOffset()-je ilyenkor orokre bennragadna.
+extern bool g_saadcCalibStuck;
+extern int g_saadcCalibCount;   // hanyszor inditottunk kalibralast
+struct SaadcRegs {
+  uint32_t ENABLE = 0;
+  uint32_t EVENTS_CALIBRATEDONE = 0;
+  // Tasknak latszo mezo: az ertekadas inditja a muveletet, ahogy a chipen is.
+  struct Task {
+    SaadcRegs* owner = nullptr;
+    void operator=(uint32_t) {
+      g_saadcCalibCount++;
+      if (!g_saadcCalibStuck) owner->EVENTS_CALIBRATEDONE = 1;
+    }
+  } TASKS_CALIBRATEOFFSET;
+  SaadcRegs() { TASKS_CALIBRATEOFFSET.owner = this; }
+};
+extern SaadcRegs* NRF_SAADC;

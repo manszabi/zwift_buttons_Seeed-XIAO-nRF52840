@@ -231,6 +231,50 @@ static bool batteryCharging() {
 // Ezért eltároljuk, és a `BAT` paranccsal le is lehet kérdezni.
 static bool basStarted = false;
 
+// ---------------------------------------------------------------------------
+// Az ADC eltolás-hibájának kalibrálása
+//
+// A könyvtár analogCalibrateOffset()-je jó, csak egyetlen dolgot nem tesz meg:
+// nem korlátozza a várakozást (`while (!NRF_SAADC->EVENTS_CALIBRATEDONE);`).
+// A setup()-ban ez azért veszélyes, mert a hardveres watchdogot szándékosan
+// csak legvégül indítjuk — ott egy beragadt periféria kézi resetig halott
+// eszközt jelentene, kerékpáron menet közben. Ezért ugyanazt a néhány
+// regiszterírást magunk végezzük el, időkorláttal: ha a kalibrálás nem fejeződik
+// be, feladjuk és kalibrálatlanul mérünk tovább. Az ára néhány LSB
+// pontatlanság — nem működésképtelenség.
+//
+// A várakozás delay()-jel megy, nem üres ciklussal: ezen a magon a delay()
+// vTaskDelay, tehát átadja a vezérlést az ütemezőnek ahelyett, hogy a
+// processzort pörgetné.
+//
+// MIÉRT CSAK INDULÁSKOR, és nem minden mérés előtt: a Nordic állásfoglalása
+// szerint elég a program indulásakor kalibrálni (és nagy hőmérséklet-változás
+// esetén), mert maga a kalibrálás is zajos — egymás utáni futtatásai eltérő
+// eltolást adnak. Mérésenként kalibrálva tehát épp ezt a szórást vinnénk bele
+// minden egyes leolvasásba. Alvás után amúgy is új kalibrálás lesz: a System OFF
+// ébredése újraindulás, tehát a setup() minden használat elején lefut.
+// ---------------------------------------------------------------------------
+static bool adcCalibrated = false;
+
+static bool adcCalibrateOffset() {
+  NRF_SAADC->ENABLE = 1;
+  NRF_SAADC->EVENTS_CALIBRATEDONE = 0;
+  NRF_SAADC->TASKS_CALIBRATEOFFSET = 1;
+
+  unsigned long start = millis();
+  while (!NRF_SAADC->EVENTS_CALIBRATEDONE) {
+    if ((millis() - start) >= ZW_ADC_CALIB_TIMEOUT_MS) {
+      NRF_SAADC->ENABLE = 0;
+      return false;
+    }
+    delay(1);
+  }
+
+  NRF_SAADC->EVENTS_CALIBRATEDONE = 0;
+  NRF_SAADC->ENABLE = 0;
+  return true;
+}
+
 // 12 bit felbontas, 3,0 V-os belso referencia: 3000 mV / 4096 lepes, majd
 // vissza az 1 MΩ / 510 kΩ osztón.
 static uint16_t millivoltsFromAdc(uint32_t raw) {
@@ -238,8 +282,14 @@ static uint16_t millivoltsFromAdc(uint32_t raw) {
   return (uint16_t)((adcMv * 1510UL) / 510UL);
 }
 
+// Minden nyers mérés ezen az egy helyen megy át (a `BAT` parancs is ezt
+// használja), hogy a mérés módja egyetlen helyen legyen leírva.
+static uint16_t readBatteryRaw() {
+  return (uint16_t)analogRead(ZW_VBAT_PIN);
+}
+
 static uint16_t readBatteryMillivolts() {
-  return millivoltsFromAdc((uint32_t)analogRead(ZW_VBAT_PIN));
+  return millivoltsFromAdc(readBatteryRaw());
 }
 
 // Feszültség -> töltöttség. A LiPo kisülési görbéje nem lineáris: a
@@ -491,6 +541,15 @@ void setup() {
   // áramlökései megrántják a tápot és vele az osztó kimenetét is; átlagolás
   // nélkül emiatt ugrálna a jelentett százalék.
   analogOversampling(8);
+  // Az eltolás-kalibrálás egyszer, itt (lásd az adcCalibrateOffset() fölötti
+  // magyarázatot). A beállítások UTÁN kell, hogy a kalibrálás az éles
+  // erősítés/referencia mellett történjen.
+  adcCalibrated = adcCalibrateOffset();
+  if (!adcCalibrated) Serial.println("FIGYELEM: az ADC kalibralasa idotullepessel elbukott");
+  // Egy eldobott mérés: a kalibrálás utáni első konverzió pontosságára nincs
+  // garancia, és ez az egy leolvasás olcsóbb, mint utánajárni. A következő
+  // updateBattery() már a rendes értéket veszi.
+  (void)analogRead(ZW_VBAT_PIN);
 
   NRF_POWER->DCDCEN = 1;
 
@@ -1819,19 +1878,22 @@ static void cmdPeers() {
 //   CONN – hány élő kapcsolat kapja
 //   CHG  – tölt-e éppen (1 = igen; ilyenkor a mért feszültség a valódi
 //          töltöttségnél magasabb, mert a töltő a végfeszültségen tartja)
+//   CAL  – sikerult-e az ADC eltolás-kalibrálása (0 = időtúllépés volt)
 static void cmdBat() {
-  uint32_t raw = (uint32_t)analogRead(ZW_VBAT_PIN);
+  uint32_t raw = (uint32_t)readBatteryRaw();
   uint16_t mv = millivoltsFromAdc(raw);
   uint8_t conns = 0;
   for (uint8_t i = 0; i < ZW_MAX_CONNECTIONS; i++) {
     if (connHandles[i] != BLE_CONN_HANDLE_INVALID) conns++;
   }
-  char line[112];
-  snprintf(line, sizeof(line), "OK BAT RAW=%lu MV=%u PCT=%u BAS=%u SENT=%d CONN=%u CHG=%u",
+  char line[128];
+  snprintf(line, sizeof(line),
+           "OK BAT RAW=%lu MV=%u PCT=%u BAS=%u SENT=%d CONN=%u CHG=%u CAL=%u",
            (unsigned long)raw, (unsigned)mv, (unsigned)batteryPercent(mv),
            (unsigned)(basStarted ? 1 : 0),
            (lastBatteryPercent == 0xFF) ? -1 : (int)lastBatteryPercent,
-           (unsigned)conns, (unsigned)(batteryCharging() ? 1 : 0));
+           (unsigned)conns, (unsigned)(batteryCharging() ? 1 : 0),
+           (unsigned)(adcCalibrated ? 1 : 0));
   Serial.println(line);
 }
 
