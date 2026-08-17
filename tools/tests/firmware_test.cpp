@@ -2349,6 +2349,63 @@ int main() {
   }
   std::cout << "-- R79 ADC: az oszto forrasellenallasahoz illo mintaveteli ido\n";
 
+  // R80) Media (consumer) muvelet nem nulla modositoval, NYOMVA TARTOTT
+  //      ismetlessel. A media jelentes nem visz modositot (a consumerKeyPress()
+  //      csak a usage kodot kuldi), ezert a lenyomat modositoja 0. Ha az
+  //      "ugyanaz van-e lenyomva" osszehasonlitas a muvelet nem nulla
+  //      modositojaval dolgozna, sosem egyezne, es minden ismetles kore
+  //      folosleges felengedes + ujra lenyomas lenne - pont az ellenkezoje
+  //      annak, amit a nyomva tartott mod jelent.
+  {
+    disconnectPeer(0); disconnectPeer(1);
+    connectPeer(0, 0xA0);
+    loadDefaultKeymap();
+    jelenlegiUzemmod = normalUzemmod;
+    resetKeyState();
+    settleTap();
+
+    // Gomb 1 / hosszu: media hangero+, nem nulla modositoval, nyomva tartva.
+    setAction(0, 0, EV_LONG, ACT_CONSUMER, KEYBOARD_MODIFIER_LEFTCTRL,
+              HID_USAGE_CONSUMER_VOLUME_INCREMENT, ZW_REPEAT_ENABLED, 30);
+    g_consumerCount = 0; g_consumerReleaseCount = 0;
+
+    longPressStart1();
+    longPress1();
+    if (g_consumerCount != 1 || g_consumerReleaseCount != 0) {
+      std::cout << "HIBA R80: az elso kuldes nem egyetlen lenyomas (kuldes="
+                << g_consumerCount << " felengedes=" << g_consumerReleaseCount << ")\n";
+      return 1;
+    }
+    // Tovabbi ismetlesek: a billentyu VEGIG lenyomva marad, kozben egyetlen
+    // felengedes sem mehet ki.
+    for (int i = 0; i < 3; i++) { g_millis += 40; longPress1(); }
+    if (g_consumerReleaseCount != 0) {
+      std::cout << "HIBA R80: nyomva tartott media-ismetles kozben "
+                << g_consumerReleaseCount << " felengedes ment ki (0 helyett)\n";
+      return 1;
+    }
+    if (g_consumerCount != 4) {
+      std::cout << "HIBA R80: nem minden ismetles ment ki (" << g_consumerCount << ")\n";
+      return 1;
+    }
+    if (!duringLongpress || !hasConsumerKeyPressed) {
+      std::cout << "HIBA R80: a tulajdonos nem jelzi a lenyomast\n";
+      return 1;
+    }
+
+    // A gomb elengedesekor a fociklus egyetlen zaro felengedest kuld.
+    longPressStop1();
+    loop(); g_millis += 200; loop();
+    if (g_consumerReleaseCount != 1 || hasConsumerKeyPressed) {
+      std::cout << "HIBA R80: a zaro felengedes nem pontosan egyszer ment ki ("
+                << g_consumerReleaseCount << ")\n";
+      return 1;
+    }
+    loadDefaultKeymap();
+    resetKeyState();
+  }
+  std::cout << "-- R80 media muvelet modositoval: nyomva tartva nem enged fel kozben\n";
+
   std::cout << "\nMINDEN TESZT SIKERES\n";
   return 0;
 }
