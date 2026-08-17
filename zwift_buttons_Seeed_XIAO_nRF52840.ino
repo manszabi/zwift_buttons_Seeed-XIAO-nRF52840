@@ -247,12 +247,19 @@ static bool basStarted = false;
 // vTaskDelay, tehát átadja a vezérlést az ütemezőnek ahelyett, hogy a
 // processzort pörgetné.
 //
-// MIÉRT CSAK INDULÁSKOR, és nem minden mérés előtt: a Nordic állásfoglalása
-// szerint elég a program indulásakor kalibrálni (és nagy hőmérséklet-változás
-// esetén), mert maga a kalibrálás is zajos — egymás utáni futtatásai eltérő
-// eltolást adnak. Mérésenként kalibrálva tehát épp ezt a szórást vinnénk bele
-// minden egyes leolvasásba. Alvás után amúgy is új kalibrálás lesz: a System OFF
-// ébredése újraindulás, tehát a setup() minden használat elején lefut.
+// MIÉRT CSAK INDULÁSKOR, és nem minden mérés előtt: a Product Specification
+// v1.11 6.23.6 (Calibration) pontosan ezt írja elő — „calibrate SAADC at least
+// once before use, and recalibrate when the ambient temperature changes by more
+// than 10°C". Mérésenként kalibrálni tehát nem indokolt; ráadásul maga a
+// kalibrálás is zajos, vagyis épp azt a szórást vinnénk bele minden leolvasásba,
+// amit csökkenteni akarunk. A 10 °C-os újrakalibrálást nem külön figyeljük: az
+// alvásból ébredés System OFF után újraindulás, tehát a setup() — és vele a
+// kalibrálás — minden használat elején amúgy is lefut.
+//
+// A [237] és [252] hibajegy szerint a TASKS_CALIBRATEOFFSET csak TASKS_START
+// ELŐTT vagy EVENTS_END UTÁN adható ki, különben hibás értékek kerülnek a
+// memóriába. Ez itt teljesül: a kalibrálás a legelső analogRead() előtt fut,
+// mintavétel tehát nincs folyamatban.
 // ---------------------------------------------------------------------------
 static bool adcCalibrated = false;
 
@@ -530,26 +537,39 @@ void setup() {
   analogReference(AR_INTERNAL_3_0);
   analogReadResolution(12);
   // A mintavételi idő NEM hagyható alapértelmezetten. Az osztó forrás-
-  // ellenállása 1 MΩ ∥ 510 kΩ = 338 kΩ; az nRF52840 adatlapja szerint 400 kΩ-ig
-  // 20 µs mintavételi idő kell. A könyvtár alapértelmezése viszont 3 µs, ami
+  // ellenállása 1 MΩ ∥ 510 kΩ = 338 kΩ, a nRF52840 Product Specification v1.11
+  // 41. táblázata (6.23.1.2 Acquisition time) szerint pedig:
+  //
+  //     TACQ [µs]  max. forrásellenállás [kΩ]
+  //         3               10
+  //         5               40
+  //        10              100
+  //        15              200
+  //        20              400
+  //        40              800
+  //
+  // A 338 kΩ tehát 20 µs-t kíván, a könyvtár alapértelmezése viszont 3 µs, ami
   // csak 10 kΩ-ig elég: ennyi idő alatt a mintavevő kondenzátor nem töltődik
   // fel a bemeneti feszültségre, ezért a mérés rendszeresen ALACSONYABBAT ad a
-  // valóságosnál — és vele a jelentett töltöttség is kevesebb. A 40 µs a
-  // tartomány teteje, tartalékkal; percenként egyszer mérünk, az ára semmi.
+  // valóságosnál — és vele a jelentett töltöttség is kevesebb. A következő
+  // fokozatot, a 40 µs-t választjuk, hogy legyen tartalék az ellenállások
+  // tűrésére; percenként egyszer mérünk, az ára semmi.
   analogSampleTime(40);
-  // Nyolc minta hardveres átlagolása egyetlen analogRead()-en belül. A BLE adás
-  // áramlökései megrántják a tápot és vele az osztó kimenetét is; átlagolás
-  // nélkül emiatt ugrálna a jelentett százalék.
+  // Nyolc minta hardveres átlagolása egyetlen analogRead()-en belül. A PS
+  // 6.23.2.4 szerint az átlagolás a jel-zaj viszonyt javítja (a linearitást nem)
+  // — a mi esetünkben ez a néhány LSB-nyi mintavételi zajt csillapítja.
+  //
+  // Ez BURST módot kapcsol be, amihez két hibajegy is tartozik: [241] és [276],
+  // mindkettő 400 µA állandó fogyasztást okoz a SAADC letiltása után. Egyik sem
+  // érint minket: mindkettő feltétele, hogy TÖBB csatorna legyen engedélyezve, a
+  // könyvtár analogRead()-je viszont minden méréskor lecsatolja mind a nyolc
+  // csatornát, és csak a CH[0]-t köti be.
   analogOversampling(8);
   // Az eltolás-kalibrálás egyszer, itt (lásd az adcCalibrateOffset() fölötti
   // magyarázatot). A beállítások UTÁN kell, hogy a kalibrálás az éles
   // erősítés/referencia mellett történjen.
   adcCalibrated = adcCalibrateOffset();
   if (!adcCalibrated) Serial.println("FIGYELEM: az ADC kalibralasa idotullepessel elbukott");
-  // Egy eldobott mérés: a kalibrálás utáni első konverzió pontosságára nincs
-  // garancia, és ez az egy leolvasás olcsóbb, mint utánajárni. A következő
-  // updateBattery() már a rendes értéket veszi.
-  (void)analogRead(ZW_VBAT_PIN);
 
   NRF_POWER->DCDCEN = 1;
 

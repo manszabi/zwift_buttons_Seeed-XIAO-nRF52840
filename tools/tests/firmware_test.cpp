@@ -2333,8 +2333,9 @@ int main() {
   std::cout << "-- R78 BAT parancs jelenti a meres es a szolgaltatas allapotat\n";
 
   // R79) Az ADC beallitasa az akku-osztohoz. Ez nem stiluskerdes: az oszto
-  //      forrasellenallasa 1 MOhm || 510 kOhm = 338 kOhm, es az nRF52840
-  //      adatlapja szerint 400 kOhm-ig 20 us mintaveteli ido kell. A konyvtar
+  //      forrasellenallasa 1 MOhm || 510 kOhm = 338 kOhm, a nRF52840 Product
+  //      Specification v1.11 41. tablazata (6.23.1.2 Acquisition time) szerint
+  //      pedig 400 kOhm-ig 20 us mintaveteli ido kell. A konyvtar
   //      alapertelmezese 3 us (csak 10 kOhm-ig eleg), amivel a mintavevo
   //      kondenzator nem tolt fel, es a meres rendszeresen alacsonyabbat ad.
   //      Ha valaki kiveszi ezt a beallitast, a meres csendben elromlana.
@@ -2344,9 +2345,10 @@ int main() {
                 << " us, az oszto 338 kOhm-jahoz legalabb 20 us kell\n";
       return 1;
     }
+    // Tulmintavetelezes: a PS 6.23.2.4 szerint a jel-zaj viszonyt javitja.
     if (g_adcOversampling < 2) {
       std::cout << "HIBA R79: nincs tulmintavetelezes (" << g_adcOversampling
-                << "), a BLE adas aramlokesei megrantanak a mert erteket\n";
+                << "), a mintaveteli zaj csillapitatlan marad\n";
       return 1;
     }
   }

@@ -275,14 +275,19 @@ Elemek („Batteries") widgetben mutatja. Percenként mérünk; értesítést cs
 küldünk, ha a százalék megváltozott, illetve egyszer minden új kapcsolatnak.
 
 A mérés a P0.31-en, 1 MΩ / 510 kΩ osztón át történik. Ennek az osztónak a
-forrásellenállása 338 kΩ, amihez az nRF52840 adatlapja szerint **legalább 20 µs
-ADC mintavételi idő** kell – az Arduino könyvtár alapértelmezése viszont 3 µs,
-ami csak 10 kΩ-ig elég. Alapértelmezetten hagyva a mintavevő kondenzátor nem
-töltődik fel, és a mérés rendszeresen kevesebbet mutat a valóságosnál, ezért a
-firmware 40 µs-ra állítja, és nyolc mintát átlagoltat a hardverrel (a BLE adás
-áramlökései miatt). Induláskor – és így minden alvásból ébredéskor – lefut az
-ADC eltolás-kalibrálása is; hogy sikerült-e, a `BAT` parancs `CAL` mezője
-mutatja.
+forrásellenállása 338 kΩ, amihez az [nRF52840 Product Specification][ps] 41.
+táblázata (*6.23.1.2 Acquisition time*) szerint **legalább 20 µs ADC mintavételi
+idő** kell – az Arduino könyvtár alapértelmezése viszont 3 µs, ami csak 10 kΩ-ig
+elég. Alapértelmezetten hagyva a mintavevő kondenzátor nem töltődik fel, és a
+mérés rendszeresen kevesebbet mutat a valóságosnál, ezért a firmware 40 µs-ra
+állítja (a következő fokozat, tartalékkal), és nyolc mintát átlagoltat a
+hardverrel a mintavételi zaj csillapítására.
+
+Induláskor – és így minden alvásból ébredéskor – lefut az ADC eltolás-
+kalibrálása is, ahogy a PS *6.23.6* előírja; hogy sikerült-e, a `BAT` parancs
+`CAL` mezője mutatja.
+
+[ps]: docs/nRF52840_PS_v1.11.pdf
 
 **Töltés közben** a töltő a cellát a végfeszültségen (~4,2 V) tartja, ezért a
 töltöttség ilyenkor a valóságosnál magasabbnak látszik. Ez minden
