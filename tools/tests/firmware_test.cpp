@@ -22,6 +22,7 @@ uint8_t g_lastModifier = 0; uint8_t g_lastPressedCode = 0;
 int g_lastConnHdl = -1; int g_sentTo[8] = {0}; bool g_pinLow[32] = {false}; bool g_pinOut[32] = {false}; int g_systemOffCount = 0; int g_adcRaw = 0; int g_batteryPercent = -1; int g_batteryNotified[8] = {-1,-1,-1,-1,-1,-1,-1,-1}; int g_batteryNotifyCount = 0;
 static WdtRegs g_wdtRegs; WdtRegs* NRF_WDT = &g_wdtRegs; int g_notifyFail = 0; int g_releasedTo[8]={0};
 uint32_t g_basBeginErr = 0;
+int g_adcSampleTime = 3; int g_adcOversampling = 0;
 int g_svcChangedFail = 0; int g_svcChangedCount = 0; int g_svcChangedTo[8] = {0};
 uint16_t g_svcChangedStart = 0; uint16_t g_svcChangedEnd = 0;
 FakeConn g_conns[4] = {};
@@ -2300,10 +2301,22 @@ int main() {
     updateBatteryTest(true);
     std::string r = send("BAT");
     if (r.find("OK BAT RAW=1936 ") != 0 || r.find(" BAS=1 ") == std::string::npos
-        || r.find(" CONN=1") == std::string::npos) {
+        || r.find(" CONN=1 ") == std::string::npos) {
       std::cout << "HIBA R78: rossz BAT valasz: " << r << "\n";
       return 1;
     }
+    // Toltesjelzes: a ~CHG lab (P0.17 / D23) LOW-ra huzva jelent toltest.
+    if (r.find(" CHG=0") == std::string::npos) {
+      std::cout << "HIBA R78: nem toltes kozben is toltest jelent: " << r << "\n";
+      return 1;
+    }
+    g_pinLow[ZW_CHARGE_STATE_PIN] = true;
+    r = send("BAT");
+    if (r.find(" CHG=1") == std::string::npos) {
+      std::cout << "HIBA R78: toltes kozben sem jelent toltest: " << r << "\n";
+      return 1;
+    }
+    g_pinLow[ZW_CHARGE_STATE_PIN] = false;
     // A jelentett szazalek ugyanaz, amit a BLE-n is kikuldtunk.
     char pctMezo[16], sentMezo[16];
     snprintf(pctMezo, sizeof(pctMezo), " PCT=%d ", g_batteryPercent);
@@ -2315,6 +2328,26 @@ int main() {
     }
   }
   std::cout << "-- R78 BAT parancs jelenti a meres es a szolgaltatas allapotat\n";
+
+  // R79) Az ADC beallitasa az akku-osztohoz. Ez nem stiluskerdes: az oszto
+  //      forrasellenallasa 1 MOhm || 510 kOhm = 338 kOhm, es az nRF52840
+  //      adatlapja szerint 400 kOhm-ig 20 us mintaveteli ido kell. A konyvtar
+  //      alapertelmezese 3 us (csak 10 kOhm-ig eleg), amivel a mintavevo
+  //      kondenzator nem tolt fel, es a meres rendszeresen alacsonyabbat ad.
+  //      Ha valaki kiveszi ezt a beallitast, a meres csendben elromlana.
+  {
+    if (g_adcSampleTime < 20) {
+      std::cout << "HIBA R79: a mintaveteli ido " << g_adcSampleTime
+                << " us, az oszto 338 kOhm-jahoz legalabb 20 us kell\n";
+      return 1;
+    }
+    if (g_adcOversampling < 2) {
+      std::cout << "HIBA R79: nincs tulmintavetelezes (" << g_adcOversampling
+                << "), a BLE adas aramlokesei megrantanak a mert erteket\n";
+      return 1;
+    }
+  }
+  std::cout << "-- R79 ADC: az oszto forrasellenallasahoz illo mintaveteli ido\n";
 
   std::cout << "\nMINDEN TESZT SIKERES\n";
   return 0;

@@ -47,9 +47,17 @@ Az eszköz 5 fizikai gombbal rendelkezik, és 3 különböző üzemmódot támog
 | D11 | LED – Piros (Normál üzemmód) |
 | D12 | LED – Kék (Verseny/Edzés üzemmód) |
 | D13 | LED – Zöld (Média vezérlő üzemmód) |
-| D22 | Töltési áram szabályozás |
-| D14 | Akkumulátor-mérés engedélyezése (végig LOW) |
-| P0.31 | Akkumulátor-feszültség (ADC, 1 MΩ / 510 kΩ osztón át) |
+| D22 (P0.13) | Töltési áram: **LOW = 100 mA**, HIGH = 50 mA – a firmware LOW-ra állítja |
+| D23 (P0.17) | Töltésjelzés bemenet (LOW = tölt) – a `BAT` parancs olvassa ki |
+| D14 (P0.14) | Akkumulátor-mérés engedélyezése (végig LOW) |
+| D32 (P0.31) | Akkumulátor-feszültség (ADC, 1 MΩ / 510 kΩ osztón át) |
+
+> ⚠️ **A lábszámok Arduino-lábszámok, nem a chip P0.xx sorszámai.** Az
+> akkumulátor-feszültség a Seeed board csomagjában **D32** (= P0.31); több
+> interneten keringő ábra tévesen 35-öt ír, ami ebben a board csomagban nem
+> létező láb – az `analogRead()` némán 0-t adna rá, azaz örökre 0% töltöttséget.
+> A firmware fordításkor ellenőrzi a board csomag értékeit, és eltérés esetén
+> megáll.
 
 ---
 
@@ -265,6 +273,19 @@ Az eszköz a szabványos BLE **Battery Service**-en (0x180F) jelenti a
 töltöttséget, így a Windows a Bluetooth-eszközök listájában, az iPhone pedig az
 Elemek („Batteries") widgetben mutatja. Percenként mérünk; értesítést csak akkor
 küldünk, ha a százalék megváltozott, illetve egyszer minden új kapcsolatnak.
+
+A mérés a P0.31-en, 1 MΩ / 510 kΩ osztón át történik. Ennek az osztónak a
+forrásellenállása 338 kΩ, amihez az nRF52840 adatlapja szerint **legalább 20 µs
+ADC mintavételi idő** kell – az Arduino könyvtár alapértelmezése viszont 3 µs,
+ami csak 10 kΩ-ig elég. Alapértelmezetten hagyva a mintavevő kondenzátor nem
+töltődik fel, és a mérés rendszeresen kevesebbet mutat a valóságosnál, ezért a
+firmware 40 µs-ra állítja, és nyolc mintát átlagoltat a hardverrel (a BLE adás
+áramlökései miatt).
+
+**Töltés közben** a töltő a cellát a végfeszültségen (~4,2 V) tartja, ezért a
+töltöttség ilyenkor a valóságosnál magasabbnak látszik. Ez minden
+feszültség-alapú mérésre igaz; hogy éppen tölt-e, a `BAT` parancs `CHG` mezője
+mondja meg.
 
 ### Ha nem látszik a töltöttség
 

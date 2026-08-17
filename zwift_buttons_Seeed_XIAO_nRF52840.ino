@@ -65,8 +65,38 @@ static inline void hwWatchdogFeed() {
   NRF_WDT->RR[0] = WDT_RR_RR_Reload;
 }
 
+// ---------------------------------------------------------------------------
+// A XIAO nRF52840 akkumulátor-kezelő lábai
+//
+// A számok a Seeed board csomag variant.h-jából valók, és Arduino-lábszámok,
+// NEM a chip P0.xx sorszámai (a variant.cpp g_ADigitalPinMap tömbje köti össze
+// a kettőt): D32 -> P0.31, D14 -> P0.14, D22 -> P0.13, D23 -> P0.17.
+//
+// FIGYELEM: több, interneten keringő lábkiosztás-ábra a VBAT-ot 35-nek írja.
+// Az itteni board csomagban ilyen láb nincs (PINS_COUNT = 33), és az
+// analogRead() a tartományon kívüli lábra némán 0-t ad — vagyis örökre 0%
+// töltöttséget. Ezért az alábbi ellenőrzés: ha a board csomag valaha mást
+// mondana, álljon meg a fordítás, ne csendben rosszul mérjünk.
+// ---------------------------------------------------------------------------
+#define ZW_VBAT_PIN            32  // P0.31 (AIN7) – akkumulátor-feszültség
+#define ZW_VBAT_ENABLE_PIN     14  // P0.14 – LOW engedélyezi a mérést
+#define ZW_CHARGE_CURRENT_PIN  22  // P0.13 (HICHG) – LOW = 100 mA, HIGH = 50 mA
+#define ZW_CHARGE_STATE_PIN    23  // P0.17 (~CHG) – LOW = tölt, HIGH = kész/nem tölt
+
+#if defined(PIN_VBAT) && (PIN_VBAT != ZW_VBAT_PIN)
+#error "A board csomag PIN_VBAT erteke mas, mint a ZW_VBAT_PIN - ellenorizd a variant.h-t!"
+#endif
+#if defined(VBAT_ENABLE) && (VBAT_ENABLE != ZW_VBAT_ENABLE_PIN)
+#error "A board csomag VBAT_ENABLE erteke mas, mint a ZW_VBAT_ENABLE_PIN!"
+#endif
+#if defined(PIN_CHARGING_CURRENT) && (PIN_CHARGING_CURRENT != ZW_CHARGE_CURRENT_PIN)
+#error "A board csomag PIN_CHARGING_CURRENT erteke mas, mint a ZW_CHARGE_CURRENT_PIN!"
+#endif
+
 const int ledPin[] = { 11, 12, 13 };  //red, blue, green
-const int pin_charging_current = 22;  //mekkora árammal töltsön
+// P0.13 (HICHG). A Seeed dokumentációja szerint LOW = nagy (100 mA), HIGH =
+// kis (50 mA) töltőáram. A lábat LOW-ra állítjuk, tehát 100 mA-rel töltünk.
+const int pin_charging_current = ZW_CHARGE_CURRENT_PIN;
 const int numOfLeds = sizeof(ledPin) / sizeof(ledPin[0]);
 const int BUTTON_PIN[5] = { 0, 1, 2, 3, 4 };  // A gombokhoz csatlakoztatott tüskék
 const int numOfButtons = sizeof(BUTTON_PIN) / sizeof(BUTTON_PIN[0]);
@@ -177,18 +207,23 @@ uzemmod jelenlegiUzemmod = normalUzemmod;
 // ---------------------------------------------------------------------------
 // Akkumulátor-szint
 //
-// A XIAO nRF52840 lábkiosztása (Seeed variant.h): VBAT_ENABLE = 14 (LOW
-// engedélyezi a mérést), PIN_VBAT = 32. Az osztó 1 MΩ / 510 kΩ, tehát a mért
-// feszültséget 1510/510 arányban kell visszaszorozni.
+// Az osztó 1 MΩ / 510 kΩ (a lábakat lásd fentebb), tehát a mért feszültséget
+// 1510/510 arányban kell visszaszorozni.
 //
 // FIGYELEM: a VBAT_ENABLE-t végig LOW-on hagyjuk. Seeed figyelmeztetése szerint
 // HIGH állapotban a PIN_VBAT töltés közben a megengedett 3,6 V fölé kerülhet.
-// Az osztó folyamatos fogyasztása elhanyagolható (~3 µA).
+// Az osztó folyamatos fogyasztása elhanyagolható (~2,8 µA): egy több éves
+// alvási energiamérleg mellett nem számít, a láb védelme viszont igen.
 // ---------------------------------------------------------------------------
-#define ZW_VBAT_ENABLE_PIN 14
-#define ZW_VBAT_PIN 32
 
 static unsigned long lastBatteryMillis = 0;
+
+// Tölt-e éppen az eszköz. Töltés közben a töltő a cellát a végfeszültségen
+// (~4,2 V) tartja, ezért a mért érték a valódi töltöttségnél magasabbat mutat —
+// ezt önmagából a feszültségből nem lehet kitalálni, ezért olvassuk ki.
+static bool batteryCharging() {
+  return digitalRead(ZW_CHARGE_STATE_PIN) == LOW;
+}
 
 // Elindult-e egyáltalán az akkumulátor-szolgáltatás. Ha a GATT tábla betelne,
 // a blebas.begin() csendben hibát adna, és a szolgáltatás egyszerűen nem
@@ -430,8 +465,13 @@ void setup() {
     pinMode(BUTTON_PIN[i], INPUT_PULLUP);
   }
   pinMode(WAKEUP_PIN, INPUT_PULLUP_SENSE);
-  pinMode(pin_charging_current, OUTPUT);  //charging current
-  digitalWrite(pin_charging_current, LOW);  //toltes alacsony árammal
+  // Töltőáram: a Seeed dokumentációja szerint LOW = 100 mA (nagy áram),
+  // HIGH = 50 mA. Itt a 100 mA-es töltést választjuk.
+  pinMode(pin_charging_current, OUTPUT);
+  digitalWrite(pin_charging_current, LOW);
+  // A töltésjelző láb bemenet: a BQ25101 nyitott nyelőjű kimenete húzza le,
+  // felhúzásról a panelen a töltésjelző LED köre gondoskodik.
+  pinMode(ZW_CHARGE_STATE_PIN, INPUT);
 
   // Akkumulátor-mérés előkészítése. A VBAT_ENABLE végig LOW marad (lásd a
   // readBatteryMillivolts() fölötti megjegyzést).
@@ -439,6 +479,18 @@ void setup() {
   digitalWrite(ZW_VBAT_ENABLE_PIN, LOW);
   analogReference(AR_INTERNAL_3_0);
   analogReadResolution(12);
+  // A mintavételi idő NEM hagyható alapértelmezetten. Az osztó forrás-
+  // ellenállása 1 MΩ ∥ 510 kΩ = 338 kΩ; az nRF52840 adatlapja szerint 400 kΩ-ig
+  // 20 µs mintavételi idő kell. A könyvtár alapértelmezése viszont 3 µs, ami
+  // csak 10 kΩ-ig elég: ennyi idő alatt a mintavevő kondenzátor nem töltődik
+  // fel a bemeneti feszültségre, ezért a mérés rendszeresen ALACSONYABBAT ad a
+  // valóságosnál — és vele a jelentett töltöttség is kevesebb. A 40 µs a
+  // tartomány teteje, tartalékkal; percenként egyszer mérünk, az ára semmi.
+  analogSampleTime(40);
+  // Nyolc minta hardveres átlagolása egyetlen analogRead()-en belül. A BLE adás
+  // áramlökései megrántják a tápot és vele az osztó kimenetét is; átlagolás
+  // nélkül emiatt ugrálna a jelentett százalék.
+  analogOversampling(8);
 
   NRF_POWER->DCDCEN = 1;
 
@@ -1654,7 +1706,7 @@ void attachButtonCallbacks() {
 //
 // Sor alapú, ASCII. Minden parancs '\n'-nel zárul, minden válasz egy sor.
 //
-//   PING                                        -> OK ZWIFT_BUTTONS PROTO=6 ...
+//   PING                                        -> OK ZWIFT_BUTTONS PROTO=7 ...
 //   GET                                         -> MAP ... (45 sor) + END
 //   SET <m> <b> <e> <t> <mod> <code> <rep> <ms> [<tgt> [<hold>]] -> OK
 //
@@ -1671,6 +1723,7 @@ void attachButtonCallbacks() {
 //   DEFAULTS                                    -> OK DEFAULTS
 //   MODE [n]                                    -> OK MODE <n>
 //   DBG <0|1>                                   -> OK DBG <n>
+//   BAT                                         -> OK BAT RAW=.. MV=.. PCT=.. ...
 //
 //   GET valasza a MAP sorok utan uzemmodonkent egy TARGET <m> <maszk> sort is
 //   tartalmaz (maszk: 1 = PC, 2 = telefon, 3 = mindketto).
@@ -1757,6 +1810,8 @@ static void cmdPeers() {
 //   BAS  – elindult-e a BLE akkumulátor-szolgáltatás (1 = igen)
 //   SENT – amit utoljára ki is értesítettünk (-1 = még semmit)
 //   CONN – hány élő kapcsolat kapja
+//   CHG  – tölt-e éppen (1 = igen; ilyenkor a mért feszültség a valódi
+//          töltöttségnél magasabb, mert a töltő a végfeszültségen tartja)
 static void cmdBat() {
   uint32_t raw = (uint32_t)analogRead(ZW_VBAT_PIN);
   uint16_t mv = millivoltsFromAdc(raw);
@@ -1764,12 +1819,12 @@ static void cmdBat() {
   for (uint8_t i = 0; i < ZW_MAX_CONNECTIONS; i++) {
     if (connHandles[i] != BLE_CONN_HANDLE_INVALID) conns++;
   }
-  char line[96];
-  snprintf(line, sizeof(line), "OK BAT RAW=%lu MV=%u PCT=%u BAS=%u SENT=%d CONN=%u",
+  char line[112];
+  snprintf(line, sizeof(line), "OK BAT RAW=%lu MV=%u PCT=%u BAS=%u SENT=%d CONN=%u CHG=%u",
            (unsigned long)raw, (unsigned)mv, (unsigned)batteryPercent(mv),
            (unsigned)(basStarted ? 1 : 0),
            (lastBatteryPercent == 0xFF) ? -1 : (int)lastBatteryPercent,
-           (unsigned)conns);
+           (unsigned)conns, (unsigned)(batteryCharging() ? 1 : 0));
   Serial.println(line);
 }
 

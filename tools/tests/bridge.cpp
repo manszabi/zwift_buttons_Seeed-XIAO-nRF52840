@@ -17,6 +17,7 @@ uint8_t g_lastModifier = 0; uint8_t g_lastPressedCode = 0;
 int g_lastConnHdl = -1; int g_sentTo[8] = {0}; bool g_pinLow[32] = {false}; bool g_pinOut[32] = {false}; int g_systemOffCount = 0; int g_adcRaw = 0; int g_batteryPercent = -1; int g_batteryNotified[8] = {-1,-1,-1,-1,-1,-1,-1,-1}; int g_batteryNotifyCount = 0;
 static WdtRegs g_wdtRegs; WdtRegs* NRF_WDT = &g_wdtRegs; int g_notifyFail = 0; int g_releasedTo[8]={0};
 uint32_t g_basBeginErr = 0;
+int g_adcSampleTime = 3; int g_adcOversampling = 0;
 int g_svcChangedFail = 0; int g_svcChangedCount = 0; int g_svcChangedTo[8] = {0};
 uint16_t g_svcChangedStart = 0; uint16_t g_svcChangedEnd = 0;
 FakeConn g_conns[4] = {};

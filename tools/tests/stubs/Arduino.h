@@ -6,6 +6,7 @@
 #include <string>
 #include <deque>
 typedef uint8_t byte;
+#define INPUT 0
 #define OUTPUT 1
 #define INPUT_PULLUP 2
 #define INPUT_PULLUP_SENSE 3
@@ -25,6 +26,12 @@ enum { AR_DEFAULT = 0, AR_INTERNAL_3_0 = 1 };
 inline void analogReference(int) {}
 inline void analogReadResolution(int) {}
 inline int analogRead(int) { return g_adcRaw; }
+// A mintaveteli ido es a tulmintavetelezes beallitasat rogzitjuk: az akku-oszto
+// forrasellenallasa (338 kOhm) miatt ezek nem elhagyhatok, a teszt ellenorzi is.
+extern int g_adcSampleTime;     // us; a konyvtar alapertelmezese 3
+extern int g_adcOversampling;   // 0 = nincs
+inline void analogSampleTime(uint8_t us) { g_adcSampleTime = us; }
+inline void analogOversampling(uint32_t n) { g_adcOversampling = (int)n; }
 // A kimeneti tuskek allapota. A valodi chipen a pinMode(OUTPUT) csak az iranyt
 // allitja, az OUT regisztert nem: az reset utan 0, tehat a lab LOW-ra all. Az
 // aktiv-alacsony LED-eknel ez azt jelenti, hogy KIGYULLAD, amig valaki HIGH-ra
