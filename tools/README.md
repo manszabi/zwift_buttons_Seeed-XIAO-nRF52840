@@ -149,7 +149,7 @@ használható – minden parancs `Enter`-rel zárul.
 | `DEFAULTS` | `OK DEFAULTS` | Gyári kiosztás betöltése (mentés nélkül) |
 | `MODE [n]` | `OK MODE <n>` | Aktuális üzemmód lekérdezése / beállítása |
 | `DBG <0\|1>` | `OK DBG <n>` | A gombok debug kiírásainak ki/be kapcsolása |
-| `BAT` | `OK BAT RAW=<n> MV=<n> PCT=<n> BAS=<0\|1> SENT=<n> CONN=<n>` | Az akkumulátor-mérés és -jelentés állapota (lásd lent) |
+| `BAT` | `OK BAT RAW=<n> MV=<n> PCT=<n> BAS=<0\|1> SENT=<n> CONN=<n> CHG=<0\|1> CAL=<0\|1>` | Az akkumulátor-mérés és -jelentés állapota (lásd lent) |
 
 A `MAP` / `SET` mezői:
 
@@ -186,10 +186,18 @@ IDE soros monitorából:
 | `BAS` | elindult-e a BLE akkumulátor-szolgáltatás. **`0` esetén a szolgáltatás létre sem jött**, a host jogosan nem mutat semmit |
 | `SENT` | amit utoljára ki is értesítettünk (`-1` = még semmit) |
 | `CONN` | hány élő BLE kapcsolat van |
+| `CHG` | tölt-e éppen (`1` = igen). Töltés közben a mért feszültség a valódi töltöttségnél magasabb, mert a töltő a végfeszültségen tartja a cellát |
+| `CAL` | sikerült-e az ADC eltolás-kalibrálása induláskor (`0` = időtúllépés volt). `0` esetén az eszköz működik tovább, csak néhány LSB-vel pontatlanabbul mér |
 
 Ha a `BAT` értelmes `MV`/`PCT` értéket ad és `BAS=1`, akkor a firmware oldalán
 minden rendben van, és a host mutatja a régi, elmentett szolgáltatás-listát –
 lásd [„Ha nem látszik a töltöttség"](../README.md#ha-nem-látszik-a-töltöttség).
+
+**A mérés hitelesítése:** húzd le a töltőt (`CHG=0` legyen), mérd meg
+multiméterrel az akkumulátor feszültségét, és hasonlítsd össze a `MV` mezővel.
+Néhány tíz mV eltérés normális; ha a `MV` tartósan és jelentősen kevesebb, az
+ADC mintavételi idejét kell megnézni (lásd a főoldali
+[Akkumulátor-szint](../README.md#-akkumulátor-szint) szakaszt).
 
 ### Ha mentés közben megszakad az áram
 

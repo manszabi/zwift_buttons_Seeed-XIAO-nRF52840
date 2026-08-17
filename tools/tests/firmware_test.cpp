@@ -22,6 +22,9 @@ uint8_t g_lastModifier = 0; uint8_t g_lastPressedCode = 0;
 int g_lastConnHdl = -1; int g_sentTo[8] = {0}; bool g_pinLow[32] = {false}; bool g_pinOut[32] = {false}; int g_systemOffCount = 0; int g_adcRaw = 0; int g_batteryPercent = -1; int g_batteryNotified[8] = {-1,-1,-1,-1,-1,-1,-1,-1}; int g_batteryNotifyCount = 0;
 static WdtRegs g_wdtRegs; WdtRegs* NRF_WDT = &g_wdtRegs; int g_notifyFail = 0; int g_releasedTo[8]={0};
 uint32_t g_basBeginErr = 0;
+int g_adcSampleTime = 3; int g_adcOversampling = 0;
+bool g_saadcCalibStuck = false; int g_saadcCalibCount = 0;
+static SaadcRegs g_saadcRegs; SaadcRegs* NRF_SAADC = &g_saadcRegs;
 int g_svcChangedFail = 0; int g_svcChangedCount = 0; int g_svcChangedTo[8] = {0};
 uint16_t g_svcChangedStart = 0; uint16_t g_svcChangedEnd = 0;
 FakeConn g_conns[4] = {};
@@ -100,6 +103,7 @@ static void settleTap() { g_millis += repeatTapMs + 1; updateRepeatTap(); }
 
 static int8_t slotOfConnTest(uint16_t h) { return slotOfConn(h); }
 static void updateBatteryTest(bool f) { updateBattery(f); }
+static bool adcCalibrateTest() { return adcCalibrateOffset(); }
 
 static void resetKeyState() {
   hasKeyPressed = false; hasConsumerKeyPressed = false;
@@ -2300,10 +2304,22 @@ int main() {
     updateBatteryTest(true);
     std::string r = send("BAT");
     if (r.find("OK BAT RAW=1936 ") != 0 || r.find(" BAS=1 ") == std::string::npos
-        || r.find(" CONN=1") == std::string::npos) {
+        || r.find(" CONN=1 ") == std::string::npos) {
       std::cout << "HIBA R78: rossz BAT valasz: " << r << "\n";
       return 1;
     }
+    // Toltesjelzes: a ~CHG lab (P0.17 / D23) LOW-ra huzva jelent toltest.
+    if (r.find(" CHG=0") == std::string::npos) {
+      std::cout << "HIBA R78: nem toltes kozben is toltest jelent: " << r << "\n";
+      return 1;
+    }
+    g_pinLow[ZW_CHARGE_STATE_PIN] = true;
+    r = send("BAT");
+    if (r.find(" CHG=1") == std::string::npos) {
+      std::cout << "HIBA R78: toltes kozben sem jelent toltest: " << r << "\n";
+      return 1;
+    }
+    g_pinLow[ZW_CHARGE_STATE_PIN] = false;
     // A jelentett szazalek ugyanaz, amit a BLE-n is kikuldtunk.
     char pctMezo[16], sentMezo[16];
     snprintf(pctMezo, sizeof(pctMezo), " PCT=%d ", g_batteryPercent);
@@ -2315,6 +2331,177 @@ int main() {
     }
   }
   std::cout << "-- R78 BAT parancs jelenti a meres es a szolgaltatas allapotat\n";
+
+  // R79) Az ADC beallitasa az akku-osztohoz. Ez nem stiluskerdes: az oszto
+  //      forrasellenallasa 1 MOhm || 510 kOhm = 338 kOhm, a nRF52840 Product
+  //      Specification v1.11 41. tablazata (6.23.1.2 Acquisition time) szerint
+  //      pedig 400 kOhm-ig 20 us mintaveteli ido kell. A konyvtar
+  //      alapertelmezese 3 us (csak 10 kOhm-ig eleg), amivel a mintavevo
+  //      kondenzator nem tolt fel, es a meres rendszeresen alacsonyabbat ad.
+  //      Ha valaki kiveszi ezt a beallitast, a meres csendben elromlana.
+  {
+    if (g_adcSampleTime < 20) {
+      std::cout << "HIBA R79: a mintaveteli ido " << g_adcSampleTime
+                << " us, az oszto 338 kOhm-jahoz legalabb 20 us kell\n";
+      return 1;
+    }
+    // Tulmintavetelezes: a PS 6.23.2.4 szerint a jel-zaj viszonyt javitja.
+    if (g_adcOversampling < 2) {
+      std::cout << "HIBA R79: nincs tulmintavetelezes (" << g_adcOversampling
+                << "), a mintaveteli zaj csillapitatlan marad\n";
+      return 1;
+    }
+  }
+  std::cout << "-- R79 ADC: az oszto forrasellenallasahoz illo mintaveteli ido\n";
+
+  // R80) Media (consumer) muvelet nem nulla modositoval, NYOMVA TARTOTT
+  //      ismetlessel. A media jelentes nem visz modositot (a consumerKeyPress()
+  //      csak a usage kodot kuldi), ezert a lenyomat modositoja 0. Ha az
+  //      "ugyanaz van-e lenyomva" osszehasonlitas a muvelet nem nulla
+  //      modositojaval dolgozna, sosem egyezne, es minden ismetles kore
+  //      folosleges felengedes + ujra lenyomas lenne - pont az ellenkezoje
+  //      annak, amit a nyomva tartott mod jelent.
+  {
+    disconnectPeer(0); disconnectPeer(1);
+    connectPeer(0, 0xA0);
+    loadDefaultKeymap();
+    jelenlegiUzemmod = normalUzemmod;
+    resetKeyState();
+    settleTap();
+
+    // Gomb 1 / hosszu: media hangero+, nem nulla modositoval, nyomva tartva.
+    setAction(0, 0, EV_LONG, ACT_CONSUMER, KEYBOARD_MODIFIER_LEFTCTRL,
+              HID_USAGE_CONSUMER_VOLUME_INCREMENT, ZW_REPEAT_ENABLED, 30);
+    g_consumerCount = 0; g_consumerReleaseCount = 0;
+
+    longPressStart1();
+    longPress1();
+    if (g_consumerCount != 1 || g_consumerReleaseCount != 0) {
+      std::cout << "HIBA R80: az elso kuldes nem egyetlen lenyomas (kuldes="
+                << g_consumerCount << " felengedes=" << g_consumerReleaseCount << ")\n";
+      return 1;
+    }
+    // Tovabbi ismetlesek: a billentyu VEGIG lenyomva marad, kozben egyetlen
+    // felengedes sem mehet ki.
+    for (int i = 0; i < 3; i++) { g_millis += 40; longPress1(); }
+    if (g_consumerReleaseCount != 0) {
+      std::cout << "HIBA R80: nyomva tartott media-ismetles kozben "
+                << g_consumerReleaseCount << " felengedes ment ki (0 helyett)\n";
+      return 1;
+    }
+    if (g_consumerCount != 4) {
+      std::cout << "HIBA R80: nem minden ismetles ment ki (" << g_consumerCount << ")\n";
+      return 1;
+    }
+    if (!duringLongpress || !hasConsumerKeyPressed) {
+      std::cout << "HIBA R80: a tulajdonos nem jelzi a lenyomast\n";
+      return 1;
+    }
+
+    // A gomb elengedesekor a fociklus egyetlen zaro felengedest kuld.
+    longPressStop1();
+    loop(); g_millis += 200; loop();
+    if (g_consumerReleaseCount != 1 || hasConsumerKeyPressed) {
+      std::cout << "HIBA R80: a zaro felengedes nem pontosan egyszer ment ki ("
+                << g_consumerReleaseCount << ")\n";
+      return 1;
+    }
+    loadDefaultKeymap();
+    resetKeyState();
+  }
+  std::cout << "-- R80 media muvelet modositoval: nyomva tartva nem enged fel kozben\n";
+
+  // R81) ADC eltolas-kalibralas. Ket kulon allitas:
+  //      1. INDULASKOR fusson le, de csak ott. A Nordic allasfoglalasa szerint a
+  //         program indulasakor kalibralni eleg, es maga a kalibralas is zajos —
+  //         egymas utani futtatasai elteronek adodnak. Meresenkent kalibralva
+  //         tehat epp ezt a szorast vinnenk bele minden leolvasasba.
+  //      2. NE VARJON KORLAT NELKUL. A konyvtar analogCalibrateOffset()-je
+  //         `while (!EVENTS_CALIBRATEDONE);`-nal all; a setup()-ban ez azert
+  //         veszelyes, mert a hardveres watchdogot szandekosan csak legvegul
+  //         inditjuk - ott egy beragadt periferia kezi resetig halott eszkozt
+  //         jelentene. Ezert sajat, idokorlatos valtozatot hasznalunk.
+  {
+    // a) A meres NEM kalibral: az induláskori beallitast hasznalja.
+    g_saadcCalibStuck = false;
+    g_saadcCalibCount = 0;
+    g_adcRaw = 1936;
+    updateBatteryTest(true);
+    (void)send("BAT");
+    if (g_saadcCalibCount != 0) {
+      std::cout << "HIBA R81: meresenkent kalibral (" << g_saadcCalibCount
+                << "), pedig csak indulaskor szabadna\n";
+      return 1;
+    }
+
+    // b) Beragadt periferia: az idokorlat kivezet a varakozasbol. Ha ez a teszt
+    //    valaha lefagy, pont az a hiba all vissza, ami ellen keszult.
+    g_saadcCalibStuck = true;
+    unsigned long elotte = g_millis;
+    bool ok = adcCalibrateTest();     // ha vegtelen ciklus lenne, itt allna meg
+    if (ok) {
+      std::cout << "HIBA R81: beragadt periferia mellett sikeresnek mondja magat\n";
+      return 1;
+    }
+    if ((g_millis - elotte) > ZW_ADC_CALIB_TIMEOUT_MS + 2) {
+      std::cout << "HIBA R81: az idokorlat nem tartott ("
+                << (g_millis - elotte) << " ms)\n";
+      return 1;
+    }
+    // Idotullepes utan sem maradhat bekapcsolva a SAADC: folyamatosan fogyasztana.
+    if (NRF_SAADC->ENABLE != 0) {
+      std::cout << "HIBA R81: idotullepes utan bekapcsolva maradt a SAADC\n";
+      return 1;
+    }
+
+    // c) Ep hardveren sikerul, es a SAADC-t utana ki is kapcsolja.
+    g_saadcCalibStuck = false;
+    if (!adcCalibrateTest()) {
+      std::cout << "HIBA R81: ep hardveren sem sikerul a kalibralas\n";
+      return 1;
+    }
+    if (NRF_SAADC->ENABLE != 0) {
+      std::cout << "HIBA R81: a SAADC bekapcsolva maradt a kalibralas utan\n";
+      return 1;
+    }
+
+    // d) A setup() (azaz minden indulas es alvasbol ebredes) kalibral, es a
+    //    sikeresseget a BAT is jelenti.
+    g_saadcCalibCount = 0;
+    setup();                          // ujrainditas szimulalasa
+    if (g_saadcCalibCount != 1) {
+      std::cout << "HIBA R81: a setup() nem pontosan egyszer kalibral ("
+                << g_saadcCalibCount << ")\n";
+      return 1;
+    }
+    connectPeer(0, 0xA0);
+    std::string r = send("BAT");
+    if (r.find(" CAL=1") == std::string::npos) {
+      std::cout << "HIBA R81: a BAT nem jelent sikeres kalibralast: " << r << "\n";
+      return 1;
+    }
+
+    // e) Ha a kalibralas indulaskor elbukik, az eszkoz ettol meg elindul es mer
+    //    tovabb - csak a BAT jelzi, hogy kalibralatlanul.
+    g_saadcCalibStuck = true;
+    setup();
+    g_saadcCalibStuck = false;
+    NRF_SAADC->EVENTS_CALIBRATEDONE = 0;
+    connectPeer(0, 0xA0);
+    g_adcRaw = 1936;
+    g_batteryPercent = -1;
+    updateBatteryTest(true);
+    if (g_batteryPercent < 0) {
+      std::cout << "HIBA R81: sikertelen kalibralas utan nincs meres\n";
+      return 1;
+    }
+    r = send("BAT");
+    if (r.find(" CAL=0") == std::string::npos) {
+      std::cout << "HIBA R81: a BAT nem jelzi a sikertelen kalibralast: " << r << "\n";
+      return 1;
+    }
+  }
+  std::cout << "-- R81 ADC-kalibralas: csak indulaskor, es idokorlattal\n";
 
   std::cout << "\nMINDEN TESZT SIKERES\n";
   return 0;

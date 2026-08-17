@@ -56,6 +56,16 @@ utánzata az Arduino, a Bluefruit BLE és a LittleFS API-nak:
 - a chip perifériáiból megvan a **watchdog** (`NRF_WDT`), az ADC
   (`analogRead`) és a **System OFF** hívás, így az újraindulás-védelem, az
   akkumulátor-mérés és az elalvás is ellenőrizhető,
+- az ADC **mintavételi ideje és túlmintavételezése** is rögzül
+  (`g_adcSampleTime`, `g_adcOversampling`), mert az akku-osztó 338 kΩ-os
+  forrásellenállásához ezek nem elhagyható beállítások – a teszt ellenőrzi,
+  hogy a firmware tényleg beállítja őket,
+- a SAADC **eltolás-kalibrálása** is modellezve van: a valódi chipen a
+  `TASKS_CALIBRATEOFFSET` írása indítja a műveletet, és a hardver állítja be
+  később a kész-jelzést. A `g_saadcCalibStuck` kapcsolóval szimulálható, hogy a
+  kész-jelzés sosem érkezik meg – így ellenőrizhető, hogy a firmware
+  időkorlátja tényleg kivezet a várakozásból (a könyvtár saját
+  `analogCalibrateOffset()`-je itt örökre bennragadna),
 - a SoftDevice `sd_ble_gatts_service_changed()` hívása is megvan, és a valódihoz
   hasonlóan **hibázhat** (`g_svcChangedFail`), amíg a peer nem engedélyezte az
   indikációt – így ellenőrizhető, hogy a firmware újrapróbálkozik, de nem
